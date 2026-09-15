@@ -1,0 +1,10 @@
+region                    = "ap-south-1"
+name                      = "supernova-prod-alb"
+vpc_id                    = "vpc-0772cc429c8f521d6"
+subnet_ids                = ["subnet-0fc41f4dee966f28c", "subnet-097ab7ade8e9c7ff5"]
+internal                  = false
+allowed_ipv4_cidrs        = ["0.0.0.0/0"]
+backend_security_group_id = "sg-00709aef230366761"
+backend_port              = 80
+health_check_path         = "/"
+# access_logs_bucket      = "existing-alb-log-bucket"
