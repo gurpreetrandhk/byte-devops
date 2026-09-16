@@ -1,13 +1,11 @@
+# Python
+venv/
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
 
 # Terraform
-**/.terraform/*
-*.tfstate
-*.tfstate.*
-crash.log
-crash.*.log
-*.tfplan
-
-# Terraform generated files
 **/.terraform/**
 *.tfstate
 *.tfstate.*
@@ -15,12 +13,20 @@ crash.*.log
 crash.log
 crash.*.log
 
-# Terraform generated files
-**/.terraform/**
-*.tfstate
-*.tfstate.*
-*.tfplan
+# Local Terraform variables / secrets
+*.tfvars
+*.tfvars.json
 
-# Terraform downloaded provider binaries
+# Downloaded provider binaries
 terraform/providers/
-**/.terraform/**
+
+# Environment / credentials
+.env
+.env.*
+*.pem
+*.key
+
+# IDE / OS
+.vscode/
+.idea/
+.DS_Store
