@@ -9,12 +9,7 @@ services:
     dockerfilePath: ./app/Dockerfile
     dockerContext: ./app
     healthCheckPath: /health
-    # Gunicorn imports app.py without running its __main__ initialization.
-    # Initialize the existing users table before serving requests.
-    dockerCommand: >-
-      /bin/sh -c 'python -c "from db import initialize_database; initialize_database()"
-      && exec gunicorn --bind "0.0.0.0:${PORT:-8080}" --workers 2
-      --access-logfile - --error-logfile - app:app'
+    # Use the Dockerfile CMD: start.sh initializes the database and runs Gunicorn.
     envVars:
       - key: PORT
         value: "8080"

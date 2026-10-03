@@ -17,6 +17,7 @@ RUN pip install \
 COPY app.py .
 COPY db.py .
 COPY social.py arena.py ./
+COPY start.sh .
 COPY static ./static
 
 RUN chown -R appuser:appgroup /app
@@ -25,9 +26,4 @@ USER appuser
 
 EXPOSE 8080
 
-CMD ["gunicorn", \
-     "--bind", "0.0.0.0:8080", \
-     "--workers", "2", \
-     "--access-logfile", "-", \
-     "--error-logfile", "-", \
-     "app:app"]
+CMD ["/bin/sh", "/app/start.sh"]
