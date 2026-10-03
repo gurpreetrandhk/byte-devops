@@ -33,7 +33,7 @@ cd /root/byte-devops
 python3 -m venv .venv
 .venv/bin/python -m pip install -r app/requirements.txt
 cd app
-../.venv/bin/python -m flask --app app run --port 8002
+SPORTSPACE_SOCIAL_DB=/tmp/dhoyo-local.sqlite3 ../.venv/bin/python -m flask --app app run --port 8002
 ```
 
 Open http://localhost:8002/ring. Stop with Ctrl+C. The older `/sportspace` link
@@ -51,28 +51,64 @@ Player profiles retain organizer awards, games, wins and 0.2-point community
 support. Ground booking, tournaments and saved activity remain available.
 
 The application persists player awards, team membership, support, posts,
-engagement, interests, follows and stories
-in a development SQLite database at `/tmp/sportspace-social.sqlite3`. Set
-`SPORTSPACE_SOCIAL_DB` to a writable persistent path to keep data outside `/tmp`.
+engagement, interests, follows and stories in PostgreSQL by default. The explicit
+`SPORTSPACE_SOCIAL_DB` override above uses SQLite for local development without
+Neon. Set it to a writable persistent path to keep local data outside `/tmp`.
 All visitors currently share one demo identity. This is not production login or
 a separate deployed microservice. Existing PostgreSQL user endpoints are unchanged.
 
 Booking and tournament activity remains browser-local under `sportspace-v1`.
 There are no payments, shared booking inventory, or real event registrations.
-Images load from Unsplash and require internet access. Sample venues, people and
+Sample images load from Unsplash and require internet access. Uploaded raster
+photos are stored with the demo state. Sample venues, people and
 events are illustrative. Lucide icons are bundled locally with their license.
 
 ## Social Feed
 
-- For You ranks posts using chosen sports, likes, saves, comments, followed authors,
-  freshness and local relevance. Interests and city are editable from the feed.
-- Following includes followed authors only. Nearby uses the selected city, without
-  requesting geolocation.
+- The three main feed modes are Global, Country and State. State is selected
+  initially and includes only the profile's state within its country. Country
+  includes that nation with the home state first. Global includes all locations,
+  ordered home state → rest of country → international, then by relevance within
+  each group. Location and interests are editable from the feed or profile.
+- Stories use the same geographic scope. Country and State come from the player's
+  saved profile location; the feed has no independent country picker. The profile
+  editor's **Use my current location** button requests browser location permission
+  and fills city, state and country. The player saves the profile to apply it.
+  Permission denial or lookup failure keeps the saved location and allows manual
+  editing. Posts retain their publication location.
+- The legacy For You, Following and city-local API modes remain compatible.
 - Player ranks are Star, Diamond, Gold and Silver, based on organizer awards.
   Likes, comments and saves on a post do not grant those awards. A player's
   official tier can provide a bounded local discovery boost.
-- Stories use image URLs and expire after 24 hours. The viewer supports previous,
-  next, arrow keys and Escape. File uploads are not implemented.
+- Stories accept JPG, PNG or WebP uploads or image URLs and expire after 24 hours.
+  The viewer supports previous, next, arrow keys and Escape. Post photos and full
+  profile photos also support raster uploads; full photos preserve aspect ratio.
+
+## Player profiles and connections
+
+The full connection map appears at the top of Home and as the first section of every
+profile, before the player stats, photos and stories. The separate
+Connections navigation item and profile tab have been removed. A fixed bottom
+bar provides Home, Explore, Share, Saved and Profile on desktop and mobile.
+Profiles have Moments, Matches, Rank & awards and Photos sections.
+`GET /api/arena/players/<id>` loads the player's own posts and active stories
+regardless of the visitor's feed mode. Stories show their author and the profile
+story viewer navigates only that player's stories.
+
+Connections show every accepted squad membership, not just squads the player
+leads. Teammate cards include games, wins and rank and open complete profiles.
+Shared match participants also appear as connections. Squad and match links open
+rosters, results and award events. Pending applicants are not accepted connections.
+Seeded historical game and award totals are distinguished from detailed records.
+Profiles include follow/support actions, editable geography and a copy-link button.
+
+`POST /api/arena/location/resolve` resolves coarse device coordinates through
+[Nominatim reverse geocoding](https://nominatim.org/release-docs/latest/api/Reverse/).
+It stores the returned city/state/country and a cache fingerprint, not raw
+coordinates. Lookups are cached for 24 hours and spaced at least two seconds
+apart across workers using the shared state. No automatic polling is used.
+The editor includes OpenStreetMap attribution. Internet access is required for
+detection; manual profile location still works offline from the provider.
 
 The deterministic scoring algorithm is a starter, not a trained recommendation
 model. Production work needs real identities, per-user engagement tables, moderation,
@@ -114,6 +150,9 @@ Fixtures marked live are sample match states, not a live sports data integration
 - `arena.js` / `arena.css`: arena, category standings, player profiles and teams.
 - `ring.js` / `ring.css`: Ring social home, Arena discovery, community hierarchy
   and the dark visual theme.
+- `player-hub.js` / `player-hub.css`: geographic feed controls, complete player
+  profiles, media uploads and player-centered connection maps.
+- `../../geography.py`: existing demo geography migration and scope ordering.
 - `../../social.py`: social API and recommendation scoring.
 - `../../arena.py`: player achievements, supporter ledger, teams and demo awards.
 

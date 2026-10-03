@@ -177,7 +177,7 @@ def test_influence_breakdown_counts_only_real_accepted_non_owner_members(client)
     assert influence['score'] == 5 and influence['memberBoost'] == 1
     assert influence['acceptedMemberCount'] == 1
     assert next(p for p in result['players'] if p['id'] == 'athlete-3')['discoveryBoost'] == 0
-    assert result['influenceRules']['feeds'] == ['for-you', 'local']
+    assert result['influenceRules']['feeds'] == ['global', 'country', 'state', 'for-you', 'local']
 
 
 def test_feed_explains_only_strongest_matching_source_and_excludes_following(client):

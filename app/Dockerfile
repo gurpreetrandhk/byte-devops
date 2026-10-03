@@ -16,7 +16,7 @@ RUN pip install \
 
 COPY app.py .
 COPY db.py .
-COPY social.py arena.py ./
+COPY social.py arena.py geography.py ./
 COPY start.sh .
 COPY static ./static
 

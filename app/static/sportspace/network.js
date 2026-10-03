@@ -47,8 +47,8 @@ function influenceHTML(player) {
 
 render=function(){
   beforeNetworkRender();
-  if(view==='ring'&&arena.data)$('#content').insertAdjacentHTML('afterbegin',networkHTML());
-  if(view==='player'&&arena.data){const player=arenaPlayer(arena.route.split('/')[1]);if(player)$('#content').insertAdjacentHTML('beforeend',influenceHTML(player));}
+  // The home screen leads with posts. Connections live on profiles and My connections.
+  if(view==='player'&&arena.data&&typeof playerHub==='undefined'){const player=arenaPlayer(arena.route.split('/')[1]);if(player)$('#content').insertAdjacentHTML('beforeend',influenceHTML(player));}
 };
 
 document.addEventListener('click',event=>{

@@ -35,6 +35,8 @@ def ensure_communities(value):
 def ensure_arena(data):
     if 'arena' in data:
         ensure_communities(data['arena'])
+        from geography import migrate_geography
+        migrate_geography(data)
         return data['arena']
     from social import seed
     award_counts = [(3, 20, 30, 40), (0, 4, 8, 12), (0, 0, 5, 8), (0, 2, 4, 6), (0, 0, 0, 3), (1, 3, 6, 8), (0, 0, 2, 5)]
@@ -50,6 +52,8 @@ def ensure_arena(data):
     teams[1]['requests'].append(dict(id='request-rohan', playerId='athlete-5', status='pending'))
     data['arena'] = dict(players=players, teams=teams, matches=matches, awards=[])
     ensure_communities(data['arena'])
+    from geography import migrate_geography
+    migrate_geography(data)
     return data['arena']
 
 
@@ -97,7 +101,7 @@ def public_arena(data):
     teams = [{**team, 'influence': team_influence[team['id']]} for team in value['teams']]
     rules = dict(tierPoints=INFLUENCE_TIER_POINTS, supportCap=INFLUENCE_SUPPORT_CAP,
                  memberFactor=INFLUENCE_MEMBER_FACTOR, memberCap=INFLUENCE_MEMBER_CAP,
-                 supportersPerPoint=5, feeds=['for-you', 'local'])
+                 supportersPerPoint=5, feeds=['global', 'country', 'state', 'for-you', 'local'])
     return {**value, 'players': players, 'teams': teams, 'communities': communities, 'currentUserId': CURRENT_USER, 'awardOrder': AWARD_ORDER, 'influenceRules': rules, 'demo': True}
 
 
@@ -109,6 +113,67 @@ def find(items, item_id):
 def overview():
     with state() as data:
         return jsonify(public_arena(data))
+
+
+@arena.get('/players/<player_id>')
+def player_details(player_id):
+    """A profile's activity is independent of the visitor's feed scope."""
+    from social import active_stories, public
+    with state() as data:
+        overview = public_arena(data)
+        player = find(overview['players'], player_id)
+        if not player:
+            return jsonify(error='Player not found'), 404
+        teams = [t for t in overview['teams'] if player_id in t['members']]
+        matches = [m for m in overview['matches'] if player_id in m['participantIds']]
+        connections = {}
+        for team in teams:
+            for member_id in team['members']:
+                if member_id != player_id:
+                    connections.setdefault(member_id, dict(playerId=member_id, teamIds=[], matchIds=[]))['teamIds'].append(team['id'])
+        for match in matches:
+            for member_id in match['participantIds']:
+                if member_id != player_id:
+                    connections.setdefault(member_id, dict(playerId=member_id, teamIds=[], matchIds=[]))['matchIds'].append(match['id'])
+        posts = sorted((p for p in data['posts'] if p.get('authorId') == player_id), key=lambda p: p['createdAt'], reverse=True)
+        return jsonify(player=player, teams=teams, matches=matches,
+                       connections=[{**c, 'player': find(overview['players'], c['playerId'])} for c in connections.values() if find(overview['players'], c['playerId'])],
+                       awards=[a for a in overview['awards'] if a['playerId'] == player_id],
+                       posts=[public(p, data) for p in posts],
+                       stories=[s for s in active_stories(data) if s.get('authorId') == player_id],
+                       recordedMatchCount=len(matches), historicalGamesPlayed=player['gamesPlayed'], demo=True)
+
+
+@arena.post('/location/resolve')
+def resolve_location():
+    """Called only after the visitor chooses browser location access."""
+    import hashlib
+    import math
+    import time
+    from geography import reverse_location
+    payload = body()
+    latitude, longitude = payload.get('latitude'), payload.get('longitude')
+    if (type(latitude) not in (int, float) or type(longitude) not in (int, float)
+            or not math.isfinite(latitude) or not math.isfinite(longitude)
+            or not -90 <= latitude <= 90 or not -180 <= longitude <= 180):
+        return jsonify(error='Provide valid location coordinates'), 400
+    fingerprint = hashlib.sha256(f'{round(latitude, 2)},{round(longitude, 2)}'.encode()).hexdigest()
+    timestamp = time.time()
+    with state() as data:
+        cache = data.get('locationLookup', {})
+        if cache.get('fingerprint') == fingerprint and timestamp - cache.get('resolvedAt', 0) < 86400 and cache.get('location'):
+            return jsonify(location=cache['location'])
+        if timestamp - cache.get('attemptedAt', 0) < 2:
+            return jsonify(error='Please wait a moment before trying location again'), 429
+        data['locationLookup'] = {**cache, 'attemptedAt': timestamp}
+    try:
+        location = reverse_location(latitude, longitude)
+    except Exception:
+        return jsonify(error='Could not detect your region. Keep your saved location or enter it manually.'), 502
+    with state() as data:
+        data['locationLookup'] = dict(fingerprint=fingerprint, location=location,
+                                      resolvedAt=timestamp, attemptedAt=timestamp)
+    return jsonify(location=location)
 
 
 @arena.post('/communities/<community_id>/membership')
@@ -228,9 +293,9 @@ def update_player(player_id):
     if player_id != CURRENT_USER:
         return jsonify(error='You can only edit your own demo profile'), 403
     payload = body()
-    if not payload or set(payload) - {'name', 'city', 'sport', 'bio', 'avatar'}:
-        return jsonify(error='Provide name, city, sport, bio, or avatar only'), 400
-    for key, maximum in (('name', 100), ('city', 80)):
+    if not payload or set(payload) - {'name', 'city', 'country', 'state', 'sport', 'bio', 'avatar', 'cover'}:
+        return jsonify(error='Provide profile fields only'), 400
+    for key, maximum in (('name', 100), ('city', 80), ('country', 80), ('state', 80)):
         if key in payload and not string(payload[key], maximum):
             return jsonify(error=f'{key} must contain 1-{maximum} characters'), 400
     if 'sport' in payload and not valid_sport(payload['sport']):
@@ -240,6 +305,11 @@ def update_player(player_id):
     if 'avatar' in payload:
         try:
             payload['avatar'] = validate_avatar(payload['avatar'])
+        except ValueError as error:
+            return jsonify(error=str(error)), 400
+    if 'cover' in payload:
+        try:
+            payload['cover'] = validate_avatar(payload['cover'], full_photo=True)
         except ValueError as error:
             return jsonify(error=str(error)), 400
     with state() as data:
@@ -258,10 +328,13 @@ def update_player(player_id):
         data['preferences']['following'] = [player['name'] if name == old_name else name for name in data['preferences']['following']]
         if 'city' in payload:
             data['preferences']['city'] = player['city']
+        for key in ('country', 'state'):
+            if key in payload:
+                data['preferences'][key] = player[key]
         return jsonify(public_arena(data))
 
 
-def validate_avatar(value):
+def validate_avatar(value, full_photo=False):
     """Decode and re-encode raster uploads; never persist arbitrary file content."""
     import base64
     import binascii
@@ -283,7 +356,10 @@ def validate_avatar(value):
                 if picture.format not in ('JPEG', 'PNG', 'WEBP') or picture.width * picture.height > 4_000_000:
                     raise ValueError('Please choose a smaller JPG, PNG, or WebP photo')
                 picture = ImageOps.exif_transpose(picture).convert('RGB')
-                picture = ImageOps.fit(picture, (256, 256))
+                if full_photo:
+                    picture.thumbnail((1200, 1200))
+                else:
+                    picture = ImageOps.fit(picture, (256, 256))
                 output = BytesIO()
                 picture.save(output, format='JPEG', quality=85)
         return 'data:image/jpeg;base64,' + base64.b64encode(output.getvalue()).decode('ascii')

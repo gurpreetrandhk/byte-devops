@@ -8,7 +8,7 @@ const isRingView = () => ringSections.includes(view);
 
 function ringStories() {
   const community=view==='community'?communities().find(c=>c.id===ring.route.split('/')[1]):null;
-  const active = social.stories.filter(s => new Date(s.expiresAt) > new Date()&&(!community||s.sport===community.sport));
+  const active = social.stories.filter(s => new Date(s.expiresAt) > new Date()&&(!community||s.sport===community.sport)&&(community||typeof storyScopeMatch!=='function'||storyScopeMatch(s)));
   return `<div class="ring-stories" aria-label="Player stories">
     <button class="ring-story ring-story-add" data-add-story><span class="avatar mine">JD</span>${icon('plus')}<span class="ring-story-name">Your story</span></button>
     ${active.map(s => `<button class="ring-story ${social.seen.includes(s.id)?'seen':''}" data-story="${escape(s.id)}" aria-label="View ${escape(s.name)}'s story"><img src="${escape(s.image)}" alt=""><span class="ring-story-name">${escape(s.name)}</span><span class="ring-story-sport">${escape(s.sport)}</span></button>`).join('')}
@@ -18,12 +18,12 @@ function ringStories() {
 postHTML = function(p) {
   const player = arena.data?.players.find(a => a.id === p.authorId);
   const community = communities().find(c=>c.id===p.communityId)||communityFor(p.sport);
-  const liked = state.likes.includes(p.id);
+  const liked = p.liked ?? state.likes.includes(p.id);
   return `<article class="post">
-    <div class="post-heading"><span class="avatar">${escape(p.initials)}</span><div>${player?playerLink(player):`<strong>${escape(p.name)}</strong>`}<small>${community?`<a href="#community/${community.id}">${escape(community.name)}</a>`:escape(p.sport)} <span> / ${escape(p.time)}</span></small></div>${player?rankBadge(player.rank):''}</div>
+    <div class="post-heading"><span class="avatar">${escape(p.initials)}</span><div>${player?playerLink(player):`<strong>${escape(p.name)}</strong>`}<small>${community?`<a href="#community/${community.id}">${escape(community.name)}</a>`:escape(p.sport)} <span> / ${escape(p.time)}${p.state?' / '+escape(p.state):''}${p.country?' / '+escape(p.country):''}</span></small></div>${player?`<a href="#player/${encodeURIComponent(player.id)}/awards" aria-label="${escape(player.name)} rank details">${rankBadge(player.rank)}</a>`:''}</div>
     <p class="post-text">${escape(p.text)}</p>
     ${p.image?`<div class="post-image-wrap"><img class="post-image" src="${escape(p.image)}" alt="${escape(p.sport)} highlight" loading="lazy">${player?.rank?`<a class="ring-image-badge" href="#player/${encodeURIComponent(player.id)}">${icon('star')} ${escape(player.rank)} player <span>${escape(player.city)}</span></a>`:''}</div>`:''}
-    <div class="post-actions"><div class="post-actions-left"><button data-like="${escape(p.id)}" class="${liked?'liked':''}" aria-pressed="${liked}" title="Like this moment">${icon('heart')} ${p.likes+Number(liked)}</button><button data-comment="${escape(p.id)}" title="Comment">${icon('message-circle')} ${p.comments.length}</button>${player&&player.id!==arena.data.currentUserId?`<button data-support="${escape(player.id)}" class="ring-support ${player.supported?'supported':''}" aria-pressed="${player.supported}" ${arena.busy?'disabled':''} title="${player.supported?'Remove your community star':'Support this player with 0.2 points'}">${icon('star')} ${player.supported?'Starred':'+0.2'}</button>`:''}</div><button data-save="${escape(p.id)}" aria-pressed="${state.saved.includes(p.id)}" title="Save moment" aria-label="Save moment">${icon('bookmark')}</button></div>
+    <div class="post-actions"><div class="post-actions-left"><button data-like="${escape(p.id)}" class="${liked?'liked':''}" aria-pressed="${liked}" title="Like this moment">${icon('heart')} ${p.likes+Number(liked)}</button><button data-comment="${escape(p.id)}" title="Comment">${icon('message-circle')} ${p.comments.length}</button>${player&&player.id!==arena.data.currentUserId?`<button data-support="${escape(player.id)}" class="ring-support ${player.supported?'supported':''}" aria-pressed="${player.supported}" ${arena.busy?'disabled':''} title="${player.supported?'Remove your community star':'Support this player with 0.2 points'}">${icon('star')} ${player.supported?'Starred':'+0.2'}</button>`:''}</div><button data-save="${escape(p.id)}" aria-pressed="${(p.saved??state.saved.includes(p.id))}" title="Save moment" aria-label="Save moment">${icon('bookmark')}</button></div>
     ${p.comments.slice(-2).map(c=>`<div class="comment"><strong>${escape(c.name)}</strong> ${escape(c.text)}</div>`).join('')}
     ${p.comments.length>2?`<button class="text-button" data-all-comments="${escape(p.id)}">View all ${p.comments.length} comments</button>`:''}
     <form class="comment-form" data-post="${escape(p.id)}"><input aria-label="Comment on ${escape(p.name)}'s post" placeholder="Give them some love..." required maxlength="500"><button type="submit">Post</button></form>
@@ -47,8 +47,8 @@ function ringFeed(posts, story=true) {
 }
 
 function ringHome() {
-  const posts = social.online ? state.posts.filter(matches) : demoFeed();
-  return `<div class="ring-layout"><section class="ring-feed">${ringStories()}<div class="ring-tabs" role="group" aria-label="Choose feed">${[['for-you','For you'],['following','Following'],['local','Near you']].map(([id,name])=>`<button data-feed-mode="${id}" class="${social.mode===id?'active':''}" aria-pressed="${social.mode===id}">${name}</button>`).join('')}<button class="ring-interest-button" data-interests>${icon('sliders-horizontal')} Your interests</button></div>${social.error?`<div class="arena-error" role="alert">${escape(social.error)} <button data-retry>Retry</button></div>`:''}${ringFeed(posts,false)}</section>${ringRail()}</div>`;
+  const posts = social.online ? (social.loadedMode===social.mode?state.posts.filter(matches):[]) : demoFeed();
+  return `${typeof hubHomeConnections==='function'?hubHomeConnections():''}<div class="ring-layout"><section class="ring-feed">${ringStories()}${typeof geographyToolbar==='function'?geographyToolbar():''}<div class="filters" role="group" aria-label="Filter feed by sport">${sports.map(s=>`<button class="chip ${filter===s?'active':''}" data-filter="${s}" aria-pressed="${filter===s}">${s}</button>`).join('')}</div><div class="ring-tabs" role="group" aria-label="Choose feed">${[['global','Global'],['country','Country'],['state','State']].map(([id,name])=>`<button data-feed-mode="${id}" class="${social.mode===id?'active':''}" aria-pressed="${social.mode===id}">${name}</button>`).join('')}<button class="ring-interest-button" data-interests>${icon('sliders-horizontal')} Your interests</button></div>${social.error?`<div class="arena-error" role="alert">${escape(social.error)} <button data-retry>Retry</button></div>`:''}${social.loading?'<p class="feed-status" role="status">Updating your feed…</p>':''}${social.loading&&social.loadedMode!==social.mode?'':ringFeed(posts,false)}</section>${ringRail()}</div>`;
 }
 
 function discoverRing() {
@@ -113,9 +113,9 @@ navigate = function(next) {
   const section=route.split('/')[0];
   if(ringSections.includes(section)) {
     view=section;filter='All sports';query='';$('#search').value='';
-    if(section==='community'){social.mode='for-you';ring.lastCommunity=route.split('/')[1];}
+    if(section==='community'){ring.lastCommunity=route.split('/')[1];}
     render();
-    if(section==='community'&&social.online)refreshFeed();
+    if(social.online)refreshFeed();
   } else beforeRingNavigate(route);
 };
 

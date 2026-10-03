@@ -2,7 +2,7 @@
 const connectionsBaseRender=render, connectionsBaseNavigate=navigate;
 const connectionsBaseGraph=networkHTML, connectionsBasePost=postHTML, connectionsBaseCommunity=communityPage;
 const connectionNumber=value=>Number(value||0).toFixed(2);
-const connectionLink=(kind,id)=>'#connections/'+kind+'/'+encodeURIComponent(id);
+const connectionLink=(kind,id)=>kind==='community'?'#community/'+encodeURIComponent(id)+'/squads':'#player/'+encodeURIComponent(kind==='team'?(arena.data?.teams.find(t=>t.id===id)?.ownerId||arena.data?.currentUserId||'demo-user'):id)+'/moments';
 const connectionRules=()=>arena.data?.influenceRules||{tierPoints:{Star:4,Diamond:3,Gold:2,Silver:1},supportCap:1,memberFactor:0.2,memberCap:1,supportersPerPoint:5};
 let connectionsAppliedRoute=null;
 
@@ -26,12 +26,12 @@ function squadInfluenceHTML(team){
 function connectionBreakdown(team){
   const captain=arenaPlayer(team.ownerId), value=team.influence, rules=connectionRules();if(!captain||!value)return '';
   const pending=team.requests.filter(r=>r.status==='pending');
-  return `<section class="connection-impact" aria-label="${escape(team.name)} influence breakdown"><div class="connection-section-heading"><div><span class="eyebrow">RECOGNITION → CONNECTION → DISCOVERY</span><h3>${escape(captain.name)} → ${escape(team.name)}</h3><p>See what this direct connection contributes to accepted members' matching-sport posts.</p></div><a href="#player/${encodeURIComponent(captain.id)}">Captain profile →</a></div>
+  return `<section class="connection-impact" aria-label="${escape(team.name)} influence breakdown"><div class="connection-section-heading"><div><span class="eyebrow">RECOGNITION → CONNECTION → DISCOVERY</span><h3>${escape(captain.name)} → ${escape(team.name)}</h3><p>See what this direct connection contributes to accepted members' matching-sport posts.</p></div><a href="#player/${encodeURIComponent(captain.id)}">View player →</a></div>
     <div class="connection-equation"><div><strong>${connectionNumber(value.tierPoints)}</strong><span>${escape(value.sourceRank||'No award tier')}</span><small>Captain's award influence</small></div><span aria-hidden="true">+</span><div><strong>${connectionNumber(value.supportPoints)}</strong><span>${captain.communityStars} supporters</span><small>Support capped at ${connectionNumber(rules.supportCap)}</small></div><span aria-hidden="true">=</span><div><strong>${connectionNumber(value.score)}</strong><span>Captain influence</span><small>Own recognition + support</small></div><span aria-hidden="true">→</span><div class="connection-result"><strong>+${connectionNumber(value.memberBoost)}</strong><span>Per accepted member</span><small>${Math.round(rules.memberFactor*100)}% share · cap +${connectionNumber(rules.memberCap)}</small></div></div>
     <div class="connection-status"><span><b>${value.acceptedMemberCount}</b> accepted members can benefit</span><span><b>${pending.length}</b> pending requests receive +0.00</span><span><b>${Math.max(0,team.capacity-team.members.length)}</b> open places</span></div>
     ${pending.length?`<div class="connection-pending"><strong>Waiting for captain approval</strong>${pending.map(r=>`<a href="#player/${encodeURIComponent(r.playerId)}">${escape(arenaPlayer(r.playerId)?.name||'Player')} <span>Pending / +0.00</span></a>`).join('')}</div>`:''}
     <div class="connection-actions">${teamJoin(team)}<a href="#teams">${team.ownerId===arena.data.currentUserId?'Manage members and requests':'Browse squads'} →</a></div>
-    <p class="connection-note">Applies to ${escape(team.sport)} posts in For You and Near You. Following and award standings keep their own ordering. Other feed signals still matter.</p></section>`;
+    <p class="connection-note">Applies to ${escape(team.sport)} posts in Global, Country and State. Following and award standings keep their own ordering. Other feed signals still matter.</p></section>`;
 }
 
 networkHTML=function(){
