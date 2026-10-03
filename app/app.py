@@ -1,6 +1,8 @@
 import logging
 
-from flask import Flask, jsonify, request
+from flask import Flask, jsonify, request, redirect
+from social import social
+from arena import arena
 from db import (
     initialize_database,
     test_database_connection,
@@ -9,6 +11,15 @@ from db import (
 )
 
 app = Flask(__name__)
+app.config["MAX_CONTENT_LENGTH"] = 1_000_000
+app.register_blueprint(social)
+app.register_blueprint(arena)
+
+
+@app.get('/sportspace')
+@app.get('/ring')
+def sportspace():
+    return redirect('/static/sportspace/index.html')
 
 logging.basicConfig(
     level=logging.INFO,

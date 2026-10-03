@@ -16,6 +16,8 @@ RUN pip install \
 
 COPY app.py .
 COPY db.py .
+COPY social.py arena.py ./
+COPY static ./static
 
 RUN chown -R appuser:appgroup /app
 

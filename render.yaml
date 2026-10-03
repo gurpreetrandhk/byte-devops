@@ -1,0 +1,32 @@
+# Free demo hosting. Setup: docs/free-hosting.md
+# Supply the Neon connection values in Render; keep credentials out of Git.
+services:
+  - type: web
+    name: byte-ring-demo
+    runtime: docker
+    plan: free
+    region: singapore
+    dockerfilePath: ./app/Dockerfile
+    dockerContext: ./app
+    healthCheckPath: /health
+    # Gunicorn imports app.py without running its __main__ initialization.
+    # Initialize the existing users table before serving requests.
+    dockerCommand: >-
+      /bin/sh -c 'python -c "from db import initialize_database; initialize_database()"
+      && exec gunicorn --bind "0.0.0.0:${PORT:-8080}" --workers 2
+      --access-logfile - --error-logfile - app:app'
+    envVars:
+      - key: PORT
+        value: "8080"
+      - key: DB_PORT
+        value: "5432"
+      - key: PGSSLMODE
+        value: require
+      - key: DB_HOST
+        sync: false
+      - key: DB_NAME
+        sync: false
+      - key: DB_USER
+        sync: false
+      - key: DB_PASSWORD
+        sync: false
