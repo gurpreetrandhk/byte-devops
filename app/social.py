@@ -107,10 +107,14 @@ def feed():
         from arena import discovery_influence, ensure_arena
         _, influence_sources = discovery_influence(ensure_arena(data))
 
-        def discovery_boost(post):
+        def discovery_sources(post):
             if mode == 'following':
-                return 0
-            return max((source['boost'] for source in influence_sources.get(post['authorId'], []) if source['sport'] == post['sport']), default=0)
+                return []
+            return [source for source in influence_sources.get(post['authorId'], [])
+                    if source['sport'] == post['sport'] and source['boost'] > 0]
+
+        def discovery_boost(post):
+            return max((source['boost'] for source in discovery_sources(post)), default=0)
 
         affinity = {sport: 6 for sport in preferences['sports']}
         for post in data['posts']:
@@ -128,7 +132,10 @@ def feed():
                  (mode != 'following' or post['name'] in preferences['following']) and
                  (mode != 'local' or post['city'].casefold() == city.casefold())]
         posts.sort(key=lambda post: (-score(post), post['id']))
-        return jsonify(posts=[{**public(post, data), 'discoveryBoost': discovery_boost(post)} for post in posts], stories=active_stories(data), preferences=preferences)
+        return jsonify(posts=[{**public(post, data), 'discoveryBoost': discovery_boost(post),
+                               'discoverySources': [source for source in discovery_sources(post)
+                                                    if source['boost'] == discovery_boost(post)]}
+                              for post in posts], stories=active_stories(data), preferences=preferences)
 
 
 @social.route('/preferences', methods=['GET', 'PATCH'])

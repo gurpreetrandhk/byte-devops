@@ -68,9 +68,15 @@ def discovery_influence(value):
     for team in value['teams']:
         owner = players.get(team['ownerId'])
         tier = player_rank(owner) if owner else None
-        score = round(INFLUENCE_TIER_POINTS.get(tier, 0) + min(len(owner['supporters']) / 5, INFLUENCE_SUPPORT_CAP), 2) if owner else 0
+        tier_points = INFLUENCE_TIER_POINTS.get(tier, 0)
+        support_points = min(len(owner['supporters']) / 5, INFLUENCE_SUPPORT_CAP) if owner else 0
+        score = round(tier_points + support_points, 2)
         boost = round(min(INFLUENCE_MEMBER_CAP, score * INFLUENCE_MEMBER_FACTOR), 2)
-        teams[team['id']] = dict(sourcePlayerId=team['ownerId'], sourceRank=tier, score=score, memberBoost=boost)
+        accepted_members = set(team['members']) - {team['ownerId']}
+        teams[team['id']] = dict(sourcePlayerId=team['ownerId'], sourceRank=tier,
+                                tierPoints=tier_points, supportPoints=round(support_points, 2),
+                                score=score, memberBoost=boost,
+                                acceptedMemberCount=sum(member_id in players for member_id in accepted_members))
         for member_id in set(team['members']):
             if member_id != team['ownerId'] and member_id in sources:
                 sources[member_id].append(dict(teamId=team['id'], sourcePlayerId=team['ownerId'], sourceRank=tier, sport=team['sport'], boost=boost))
@@ -89,7 +95,10 @@ def public_arena(data):
     communities = [{**community, 'joined': CURRENT_USER in community['memberIds'],
                     'memberCount': len(community['memberIds'])} for community in value['communities']]
     teams = [{**team, 'influence': team_influence[team['id']]} for team in value['teams']]
-    return {**value, 'players': players, 'teams': teams, 'communities': communities, 'currentUserId': CURRENT_USER, 'awardOrder': AWARD_ORDER, 'demo': True}
+    rules = dict(tierPoints=INFLUENCE_TIER_POINTS, supportCap=INFLUENCE_SUPPORT_CAP,
+                 memberFactor=INFLUENCE_MEMBER_FACTOR, memberCap=INFLUENCE_MEMBER_CAP,
+                 supportersPerPoint=5, feeds=['for-you', 'local'])
+    return {**value, 'players': players, 'teams': teams, 'communities': communities, 'currentUserId': CURRENT_USER, 'awardOrder': AWARD_ORDER, 'influenceRules': rules, 'demo': True}
 
 
 def find(items, item_id):
