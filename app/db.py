@@ -131,3 +131,34 @@ def get_users():
     finally:
 
         connection.close()
+
+
+from contextlib import contextmanager
+from psycopg2.extras import Json
+
+
+@contextmanager
+def sportspace_state(seed):
+    """Serialize shared demo mutations across all application workers."""
+    connection = get_connection()
+    try:
+        with connection:
+            with connection.cursor() as cursor:
+                cursor.execute("SELECT pg_advisory_xact_lock(82461002)")
+                cursor.execute("""
+                    CREATE TABLE IF NOT EXISTS sportspace_state (
+                        id INTEGER PRIMARY KEY CHECK (id = 1),
+                        payload JSONB NOT NULL,
+                        updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+                    )
+                """)
+                cursor.execute("SELECT payload FROM sportspace_state WHERE id = 1 FOR UPDATE")
+                row = cursor.fetchone()
+                data = row[0] if row else seed()
+                yield data
+                cursor.execute("""
+                    INSERT INTO sportspace_state (id, payload) VALUES (1, %s)
+                    ON CONFLICT (id) DO UPDATE SET payload = EXCLUDED.payload, updated_at = now()
+                """, (Json(data),))
+    finally:
+        connection.close()
