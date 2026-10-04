@@ -87,14 +87,17 @@ function hubProfileConnections(p,data){
   return `<section id="profile-connections" class="hub-connections-map hub-profile-connections" aria-label="${escape(p.name)}'s full connections"><div class="hub-section-heading"><div><span class="eyebrow">YOUR PEOPLE. YOUR GAME.</span><h2>${escape(p.name.split(' ')[0])}'s connections</h2><p>${teams.length} squads · ${data?connections.length:'…'} connected players. Click anyone to explore their profile and connections.</p></div><a href="#teams">Find teammates ↗</a></div><a class="hub-map-root" href="${hubPlayerURL(p.id)}" aria-label="Open ${escape(p.name)} profile and connections">${arenaAvatar(p)}<strong>${escape(p.name)}</strong>${rankBadge(p.rank)}</a><div class="hub-map-line" aria-hidden="true"></div><div class="hub-squad-grid">${teams.map(t=>hubSquad(t,p.id)).join('')||hubEmpty('No accepted squad connections yet.')}</div>${matchPeers.length?`<div class="hub-match-connections"><span class="eyebrow">CONNECTED THROUGH MATCHES</span><div class="hub-roster">${matchPeers.map(c=>hubConnectionCard(arenaPlayer(c.playerId)||c.player,c.matchIds.length+' shared match'+(c.matchIds.length===1?'':'es'))).join('')}</div></div>`:''}${!data?'<p class="hub-connection-loading" role="status">Loading all player and match connections…</p>':''}</section>`;
 }
 
-function hubHomeConnections(){
-  const me=arenaPlayer(arena.data?.currentUserId);if(!me)return '';
-  return hubProfileConnections(me,playerHub.profiles.get(me.id)).replace('id="profile-connections"','id="home-connections"').replace(`${escape(me.name.split(' ')[0])}'s connections`,'Your connections');
+function hubConnectionDirectory(){
+  if(!arena.data)return '<p class="hub-empty" role="status">Loading teams and players…</p>';
+  return `<section id="home-connections" class="hub-connections-map"><div class="hub-section-heading"><div><span class="eyebrow">FIND YOUR PEOPLE</span><h2>Teams & players</h2><p>Meet the squads. Get to know the people behind them.</p></div><a href="#teams">Manage your squads ↗</a></div><div class="section-bar"><h3>Teams</h3><span>${arena.data.teams.length} squads</span></div><div class="connection-card-grid">${arena.data.teams.map(t=>{const captain=arenaPlayer(t.ownerId);return `<button type="button" class="connection-team-card" data-hub-squad="${escape(t.id)}"><span class="team-monogram">${escape(t.name.split(' ').map(w=>w[0]).join('').slice(0,2))}</span><strong>${escape(t.name)}</strong><small>${escape(t.sport)} · ${escape(t.city)}</small><span class="connection-card-roster">${t.members.slice(0,4).map(arenaPlayer).filter(Boolean).map(arenaAvatar).join('')}</span><small>${t.members.length} / ${t.capacity} players · Captain: ${escape(captain?.name||'Not assigned')}</small><span class="hub-link">Meet the team ↗</span></button>`;}).join('')||hubEmpty('No teams yet. Create a squad to get started.')}</div><div class="section-bar"><h3>Players</h3><span>${arena.data.players.length} profiles</span></div><div class="connection-card-grid">${arena.data.players.map(p=>{const teams=arena.data.teams.filter(t=>t.members.includes(p.id));return `<a class="connection-player-card" href="${hubPlayerURL(p.id)}">${arenaAvatar(p)}<strong>${escape(p.name)}</strong><small>${escape(p.sport)} · ${escape(hubLocation(p))}</small>${rankBadge(p.rank)}<small>${escape(teams.map(t=>t.name).join(' · ')||'Looking for a squad')}</small><span class="hub-link">View profile & connections ↗</span></a>`;}).join('')||hubEmpty('No players yet.')}</div></section>`;
 }
+
+function hubHomeConnections(){return hubConnectionDirectory();}
 
 // The connections graph follows a player's memberships, including squads they do not lead.
 networkHTML=function(){
   if(!arena.data)return '';
+  if(location.hash.slice(1).split('/').length===1)return hubConnectionDirectory();
   const parts=location.hash.slice(1).split('/'), team=parts[1]==='team'?arena.data.teams.find(t=>t.id===decodeURIComponent(parts[2]||'')):null;
   const p=arenaPlayer(parts[1]==='player'?decodeURIComponent(parts[2]||''):team?.ownerId||arena.data.currentUserId);
   const teams=team?[team]:arena.data.teams.filter(t=>t.members.includes(p?.id));

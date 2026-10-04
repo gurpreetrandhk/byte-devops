@@ -17,3 +17,13 @@
 .hub-profile-connections .hub-squad-grid{position:relative}.hub-profile-connections .hub-squad-grid:has(>.hub-squad:only-child){grid-template-columns:minmax(0,1fr);max-width:700px;margin-inline:auto}.hub-profile-connections .hub-squad-grid:has(>.hub-squad:nth-child(2)):before{content:"";position:absolute;top:-18px;left:25%;right:25%;border-top:2px dashed #6f8e44}
 .hub-squad-recognition{padding:12px;border:1px solid #395c4b;background:#16291f;border-radius:8px;display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin:0 0 13px;font-size:11px}.hub-squad-recognition>a{color:#d4fa62}.hub-squad-recognition>span{font-size:10px;line-height:1.7;color:#b2d6c4}.hub-squad-recognition b{color:#9de3d8}.hub-squad-recognition>small{width:100%;font-size:9px;color:#a3bca9;margin:0}
 @media(max-width:640px){.hub-profile-connections .hub-squad-grid:before{display:none}.app-bottom-nav>a>span:not(.bottom-profile-avatar),.app-bottom-nav>button>span{font-size:9px}}
+
+.connection-card-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:14px;margin-bottom:26px}
+.connection-team-card,.connection-player-card{display:flex;flex-direction:column;align-items:flex-start;gap:12px;text-align:left;padding:22px;background:#20251c;border:1px solid #414c35;border-radius:12px;color:#edf2e5;text-decoration:none;font:inherit;cursor:pointer;min-width:0}
+.connection-team-card:hover,.connection-player-card:hover{background:#2a3322;border-color:#b2d366}
+.connection-team-card:focus-visible,.connection-player-card:focus-visible{outline:2px solid #d4fa62;outline-offset:3px}
+.connection-team-card strong,.connection-player-card strong{font-size:17px;overflow-wrap:anywhere}
+.connection-team-card small,.connection-player-card small{color:#aebba0;font-size:12px;line-height:1.6;overflow-wrap:anywhere}
+.connection-card-roster{display:flex;gap:5px}.connection-card-roster .avatar{width:30px;height:30px;font-size:10px}.connection-player-card>.avatar{width:52px;height:52px}
+.connection-team-card>.hub-link,.connection-player-card>.hub-link{margin-top:auto;font-size:12px;color:#d4fa62}
+@media(max-width:480px){.connection-card-grid{grid-template-columns:1fr}.connection-team-card,.connection-player-card{padding:18px}}

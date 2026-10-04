@@ -80,14 +80,14 @@ postHTML=function(post){
 render=function(){
   if(view!=='connections'){connectionsBaseRender();return;}
   document.body.classList.add('ring-experience');document.body.classList.remove('ring-home','arena-view');
-  $('.page-heading').hidden=false;$('#eyebrow').textContent='YOUR SPORTING NETWORK';$('#title').textContent='One connection. A wider circle.';$('#subtitle').textContent='Follow the relationships between recognition, support and squads. See what each connection changes.';
+  $('.page-heading').hidden=false;$('#eyebrow').textContent='YOUR SPORTING NETWORK';$('#title').textContent='One connection. A wider circle.';$('#subtitle').textContent='Browse teams and players. Select a card to explore their full story and connections.';
   $('#create').hidden=true;$('#filters').hidden=true;$('#search').disabled=true;$('#search').placeholder='Explore connections below';
   const error=arena.error?`<div class="arena-error" role="alert">${escape(arena.error)} <button data-arena-retry>Retry connection</button></div>`:'';
   if(arena.data){
     const route=location.hash.slice(1).split('/');if(route[1]&&route[2]&&connectionsAppliedRoute!==location.hash){chooseConnection(route[1],decodeURIComponent(route[2]));connectionsAppliedRoute=location.hash;}
     const focused=route[1]==='player'?arenaPlayer(decodeURIComponent(route[2]||'')):null;
-    $('#content').innerHTML=error+`<div class="connection-overview"><span><strong>${communities().length}</strong> Arenas</span><span><strong>${arena.data.teams.length}</strong> Squads</span><span><strong>${arena.data.players.length}</strong> Player profiles</span><a href="${connectionLink('player',arena.data.currentUserId)}">See my connections →</a></div>`+networkHTML()+(focused?influenceHTML(focused):'')+connectionRulebook()+connectionCalculator()+`<section><div class="section-bar"><h2>Find your next connection</h2><a href="#teams">Squads and applications →</a></div><div class="connection-directory">${arena.data.teams.map(t=>`<article><h3>${escape(t.name)}</h3><p>${escape(t.sport)} / ${escape(t.city)}</p>${squadInfluenceHTML(t)}</article>`).join('')}</div></section>`;
-    updateConnectionPreview();
+    $('#content').innerHTML=error+`<div class="connection-overview"><span><strong>${communities().length}</strong> Arenas</span><span><strong>${arena.data.teams.length}</strong> Squads</span><span><strong>${arena.data.players.length}</strong> Player profiles</span><a href="${connectionLink('player',arena.data.currentUserId)}">See my connections →</a></div>`+networkHTML()+(focused?influenceHTML(focused):'')+(route[1]?connectionRulebook()+connectionCalculator()+`<section><div class="section-bar"><h2>Find your next connection</h2><a href="#teams">Squads and applications →</a></div><div class="connection-directory">${arena.data.teams.map(t=>`<article><h3>${escape(t.name)}</h3><p>${escape(t.sport)} / ${escape(t.city)}</p>${squadInfluenceHTML(t)}</article>`).join('')}</div></section>`:'');
+    if(route[1])updateConnectionPreview();
   }else $('#content').innerHTML=error+'<p class="empty" role="status">Loading your sporting connections…</p>';
   document.querySelectorAll('nav button').forEach(b=>{const active=b.dataset.ringRoute==='connections';b.classList.toggle('active',active);b.setAttribute('aria-current',active?'page':'false');});
   $('#connection-status').textContent=arena.data?'Shared demo account / RING':'Loading connections';
