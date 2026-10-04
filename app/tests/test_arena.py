@@ -193,7 +193,7 @@ def test_feed_explains_only_strongest_matching_source_and_excludes_following(cli
         value['players'][0]['supporters'] = [str(i) for i in range(100)]
         value['teams'].append(dict(id='basketball-squad', name='Court Squad', sport='Basketball', city='Bengaluru',
                                   ownerId='athlete-1', members=['athlete-1', 'demo-user'], requests=[], capacity=5))
-        data['preferences']['following'] = ['You']
+        data['preferences']['following'] = ['Jordan Davis']
     for mode in ('for-you', 'local'):
         feed_posts = {p['id']: p for p in client.get('/api/social/feed?mode=' + mode).get_json()['posts']}
         esports = feed_posts[posts['Esports']]

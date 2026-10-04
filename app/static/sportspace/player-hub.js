@@ -12,8 +12,10 @@ function geographyToolbar(){
 }
 
 async function hubRaster(file){
-  if(!['image/jpeg','image/png','image/webp'].includes(file.type)||file.size>5*1024*1024)throw new Error('Choose a JPG, PNG or WebP under 5 MB.');
-  const bitmap=await createImageBitmap(file);
+  if(file.size>5*1024*1024)throw new Error('Choose a photo under 5 MB.');
+  if(!file.type.startsWith('image/'))throw new Error('Choose an image file.');
+  let bitmap;
+  try{bitmap=await createImageBitmap(file);}catch{throw new Error('Your browser cannot read this photo format. Export it as JPG or PNG and try again.');}
   try{
     const canvas=document.createElement('canvas'),scale=Math.min(1,1000/Math.max(bitmap.width,bitmap.height));
     canvas.width=Math.max(1,Math.round(bitmap.width*scale));canvas.height=Math.max(1,Math.round(bitmap.height*scale));
@@ -24,14 +26,27 @@ async function hubRaster(file){
 
 function hubMediaForm(story=false){
   const community=view==='community'?communities().find(c=>c.id===ring.route.split('/')[1]):null;
-  openSocialForm(story?'Add your story':'Share your moment',`<label class="field">Sport<select name="sport">${sports.slice(1).map(s=>`<option ${s===(community?.sport||arenaPlayer(arena.data?.currentUserId)?.sport)?'selected':''}>${escape(s)}</option>`).join('')}</select></label><label class="field">${story?'Caption':'Your moment'}<textarea name="text" ${story?'':'required'} maxlength="${story?500:3000}" placeholder="Share what happened in your game"></textarea></label><label class="field">Upload a photo<input name="photo" type="file" accept="image/jpeg,image/png,image/webp"></label><label class="field">Or use a photo URL<input name="image" type="url" maxlength="2048" placeholder="https://…"></label><p class="modal-note">${story?'A story needs a photo and stays visible for 24 hours.':'Photo optional. Your moment appears on your profile and geographic feeds.'}</p>`,'Share '+(story?'story':'moment'),async data=>{
-    const file=data.get('photo'),image=file?.size?await hubRaster(file):data.get('image').trim();
-    if(story&&!image){toast('Choose a photo for your story.');return false;}
-    const payload={sport:data.get('sport'),text:data.get('text').trim(),...(image?{image}:{})};
+  const me=arenaPlayer(arena.data?.currentUserId);if(!me){toast('Your profile is still loading. Please try again.');return;}
+  let selectedImage='',processing=false,sequence=0;
+  openSocialForm(story?'A moment from your day':'What’s happening in your game?',`<div class="moment-author">${arenaAvatar(me)}<div><strong>${escape(me.name)}</strong><small>${escape(hubLocation(me))} · Shared with the community</small></div></div><textarea class="moment-caption" name="text" ${story?'':'required'} maxlength="${story?500:3000}" placeholder="A great match, a small win, or a shout-out to your teammates…" aria-label="Post caption"></textarea><span class="moment-counter">0 / ${story?500:3000}</span><label class="field">Sport<select name="sport">${sports.slice(1).map(s=>`<option ${s===(community?.sport||me.sport)?'selected':''}>${escape(s)}</option>`).join('')}</select></label><input id="moment-file" type="file" accept="image/*" hidden><button type="button" class="moment-photo-picker"><strong>+ Add a photo</strong><small>Choose from your photos or files · up to 5 MB</small></button><div class="moment-preview" hidden><img alt="Your selected photo"><button type="button">Remove photo</button></div><details class="moment-help"><summary>Using Google Photos, Drive, iCloud or OneDrive?</summary><p>Choose Add a photo, then use the photo library or file providers available on your device. On iPhone or iPad, use Photo Library or Browse. On a computer, choose a downloaded or synced file. If your cloud library is not listed, download the photo from that service first, then select it here.</p></details><p class="moment-error" role="alert"></p><p class="modal-note">${story?'Your story stays visible for 24 hours.':'Your photo keeps its proportions. Add a caption that tells the story.'}</p>`,story?'Share story':'Publish post',async data=>{
+    if(processing)return false;
+    if(story&&!selectedImage){error.textContent='Add a photo for your story.';return false;}
+    const payload={sport:data.get('sport'),text:data.get('text').trim(),...(selectedImage?{image:selectedImage}:{})};
     if(community&&!story)payload.communityId=community.id;
-    const ok=await mutation(story?'/stories':'/posts',payload);if(ok)toast(story?'Your story is live.':'Your moment is published.');return ok;
+    try{await api(story?'/stories':'/posts','POST',payload);await refreshFeed();toast(story?'Your story is live.':'Your moment is published.');return true;}catch(problem){error.textContent=problem.message;return false;}
   });
+  const modal=$('#modal'),input=modal.querySelector('#moment-file'),preview=modal.querySelector('.moment-preview'),error=modal.querySelector('.moment-error'),submit=$('#submit-modal');
+  modal.querySelector('.moment-photo-picker').onclick=()=>input.click();
+  modal.querySelector('.moment-caption').oninput=event=>modal.querySelector('.moment-counter').textContent=event.target.value.length+' / '+(story?500:3000);
+  preview.querySelector('button').onclick=()=>{sequence++;processing=false;selectedImage='';preview.hidden=true;input.value='';submit.disabled=false;};
+  input.onchange=async()=>{
+    const file=input.files[0];if(!file)return;const token=++sequence;processing=true;submit.disabled=true;error.textContent='Preparing your photo…';
+    try{const result=await hubRaster(file);if(token===sequence){selectedImage=result;preview.querySelector('img').src=result;preview.hidden=false;error.textContent='';}}
+    catch(problem){error.textContent=problem.message||'This image could not be read. Try a JPG, PNG or WebP photo.';}
+    finally{if(token===sequence){processing=false;submit.disabled=false;input.value='';}}
+  };
 }
+
 compose=function(){hubMediaForm(false);};
 addStory=function(){hubMediaForm(true);};
 
@@ -92,12 +107,12 @@ function hubConnectionDirectory(){
   return `<section id="home-connections" class="hub-connections-map"><div class="hub-section-heading"><div><span class="eyebrow">FIND YOUR PEOPLE</span><h2>Teams & players</h2><p>Meet the squads. Get to know the people behind them.</p></div><a href="#teams">Manage your squads ↗</a></div><div class="section-bar"><h3>Teams</h3><span>${arena.data.teams.length} squads</span></div><div class="connection-card-grid">${arena.data.teams.map(t=>{const captain=arenaPlayer(t.ownerId);return `<button type="button" class="connection-team-card" data-hub-squad="${escape(t.id)}"><span class="team-monogram">${escape(t.name.split(' ').map(w=>w[0]).join('').slice(0,2))}</span><strong>${escape(t.name)}</strong><small>${escape(t.sport)} · ${escape(t.city)}</small><span class="connection-card-roster">${t.members.slice(0,4).map(arenaPlayer).filter(Boolean).map(arenaAvatar).join('')}</span><small>${t.members.length} / ${t.capacity} players · Captain: ${escape(captain?.name||'Not assigned')}</small><span class="hub-link">Meet the team ↗</span></button>`;}).join('')||hubEmpty('No teams yet. Create a squad to get started.')}</div><div class="section-bar"><h3>Players</h3><span>${arena.data.players.length} profiles</span></div><div class="connection-card-grid">${arena.data.players.map(p=>{const teams=arena.data.teams.filter(t=>t.members.includes(p.id));return `<a class="connection-player-card" href="${hubPlayerURL(p.id)}">${arenaAvatar(p)}<strong>${escape(p.name)}</strong><small>${escape(p.sport)} · ${escape(hubLocation(p))}</small>${rankBadge(p.rank)}<small>${escape(teams.map(t=>t.name).join(' · ')||'Looking for a squad')}</small><span class="hub-link">View profile & connections ↗</span></a>`;}).join('')||hubEmpty('No players yet.')}</div></section>`;
 }
 
-function hubHomeConnections(){return hubConnectionDirectory();}
+function hubHomeConnections(){return `<div class="social-home-links"><div><span class="eyebrow">YOUR COMMUNITY</span><h2>Your people. Your moments.</h2></div><a href="#connections">Explore connections ↗</a></div>`;}
 
 // The connections graph follows a player's memberships, including squads they do not lead.
 networkHTML=function(){
   if(!arena.data)return '';
-  if(location.hash.slice(1).split('/').length===1)return hubConnectionDirectory();
+  if(location.hash.slice(1).split('/').length===1)return connectionsBaseGraph()+hubConnectionDirectory();
   const parts=location.hash.slice(1).split('/'), team=parts[1]==='team'?arena.data.teams.find(t=>t.id===decodeURIComponent(parts[2]||'')):null;
   const p=arenaPlayer(parts[1]==='player'?decodeURIComponent(parts[2]||''):team?.ownerId||arena.data.currentUserId);
   const teams=team?[team]:arena.data.teams.filter(t=>t.members.includes(p?.id));
@@ -211,6 +226,14 @@ document.addEventListener('click',async event=>{
 render=function(){
   hubBaseRender();
   const me=arenaPlayer(arena.data?.currentUserId);
+  if(me){
+    document.querySelector('.sidebar-bottom strong').textContent=me.name;
+    document.querySelector('.sidebar-bottom small').textContent='Your player account';
+    document.querySelectorAll('.avatar.mine').forEach(el=>el.innerHTML=me.avatar?`<img src="${escape(me.avatar)}" alt="Your profile photo">`:escape(me.initials));
+    document.querySelector('[data-bottom-route="profile"]').href=hubPlayerURL(me.id);
+    $('#connection-status').textContent='Signed in as '+me.name;
+    document.querySelectorAll('[data-organizer]').forEach(button=>button.hidden=true);
+  }
   const avatar=document.querySelector('.bottom-profile-avatar');
   if(avatar&&me)avatar.innerHTML=me.avatar?`<img src="${escape(me.avatar)}" alt="">`:escape(me.initials);
   document.querySelectorAll('[data-bottom-route]').forEach(link=>{
@@ -228,3 +251,36 @@ render=function(){
   }
 };
 render();
+
+// Preview real squad and match relationships without leaving the feed.
+let playerPreviewTimer;
+const playerPreview=document.createElement('aside');
+playerPreview.className='player-hover-connections';playerPreview.hidden=true;
+playerPreview.setAttribute('aria-label','Player connections preview');document.body.append(playerPreview);
+function closePlayerPreview(){playerPreview.hidden=true;}
+function showPlayerPreview(link){
+  if(!arena.data)return;
+  let id;
+  try{id=decodeURIComponent(link.hash.split('/')[1]||'');}catch{return;}
+  const person=arenaPlayer(id);if(!person)return;
+  clearTimeout(playerPreviewTimer);
+  const teams=arena.data.teams.filter(t=>t.members.includes(id));
+  const peerIds=new Set(teams.flatMap(t=>t.members).filter(pid=>pid!==id));
+  arena.data.matches.filter(m=>m.participantIds.includes(id)).forEach(m=>m.participantIds.filter(pid=>pid!==id).forEach(pid=>peerIds.add(pid)));
+  const peers=[...peerIds].map(arenaPlayer).filter(Boolean);
+  playerPreview.innerHTML=`<div class="preview-identity">${arenaAvatar(person)}<div><strong>${escape(person.name)}</strong><small>${escape(person.sport)} · ${escape(person.city)}</small></div><button type="button" aria-label="Close connections preview">×</button></div><h3>Connections</h3><p>${teams.length} squads · ${peers.length} connected players</p>${teams.map(t=>`<a href="#connections/team/${encodeURIComponent(t.id)}">${icon('users')} ${escape(t.name)} <small>${t.members.length} players ↗</small></a>`).join('')||'<p>No squad connections yet.</p>'}${peers.slice(0,4).map(p=>`<a href="${hubPlayerURL(p.id)}">${arenaAvatar(p)} ${escape(p.name)} ↗</a>`).join('')}<a class="preview-full" href="${hubPlayerURL(id,'connections')}">Open full profile & connections ↗</a>`;
+  playerPreview.querySelector('button').onclick=closePlayerPreview;
+  playerPreview.querySelectorAll('a').forEach(a=>a.onclick=closePlayerPreview);
+  playerPreview.hidden=false;
+  const rect=link.getBoundingClientRect(),height=playerPreview.offsetHeight;
+  playerPreview.style.left=Math.max(12,Math.min(rect.left,innerWidth-playerPreview.offsetWidth-12))+'px';
+  playerPreview.style.top=Math.max(12,Math.min(rect.bottom+8,innerHeight-height-12))+'px';
+}
+document.addEventListener('mouseover',event=>{const link=event.target.closest('a[href^="#player/"]');if(link&&!playerPreview.contains(link))showPlayerPreview(link);});
+document.addEventListener('mouseout',event=>{if(event.target.closest('a[href^="#player/"]'))playerPreviewTimer=setTimeout(closePlayerPreview,250);});
+playerPreview.addEventListener('mouseenter',()=>clearTimeout(playerPreviewTimer));
+playerPreview.addEventListener('mouseleave',()=>playerPreviewTimer=setTimeout(closePlayerPreview,250));
+document.addEventListener('focusin',event=>{const link=event.target.closest('a[href^="#player/"]');if(link&&!playerPreview.contains(link))showPlayerPreview(link);else if(!playerPreview.contains(event.target))closePlayerPreview();});
+document.addEventListener('keydown',event=>{if(event.key==='Escape')closePlayerPreview();});
+window.addEventListener('hashchange',closePlayerPreview);
+window.addEventListener('scroll',closePlayerPreview);

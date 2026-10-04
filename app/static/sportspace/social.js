@@ -1,5 +1,5 @@
 // Social uses the Flask API when available; static hosting remains a local demo.
-const social = {online:false,mode:'state',loading:false,error:'',request:0,preferences:{sports:['Football','Esports'],city:'Bengaluru',country:'India',state:'Karnataka',following:[]},stories:[],seen:[],busy:false};
+const social = {online:false,mode:'for-you',loading:false,error:'',request:0,preferences:{sports:['Football','Esports'],city:'Bengaluru',country:'India',state:'Karnataka',following:[]},stories:[],seen:[],busy:false};
 try {const saved=JSON.parse(localStorage.getItem('sportspace-social-preferences'));if(saved&&Array.isArray(saved.sports)&&typeof saved.city==='string')social.preferences=saved;}catch{}
 const icon = (name, cls='action-icon') => `<img class="${cls}" src="icons/${name}.svg" alt="">`;
 const ranks = ['Star','Diamond','Gold','Silver'];

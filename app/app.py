@@ -12,8 +12,18 @@ from db import (
 
 app = Flask(__name__)
 app.config["MAX_CONTENT_LENGTH"] = 1_000_000
+import os
+app.config["AUTH_COOKIE_SECURE"] = os.environ.get("AUTH_COOKIE_SECURE") == "1"
 app.register_blueprint(social)
 app.register_blueprint(arena)
+from auth import install_auth
+install_auth(app)
+
+@app.after_request
+def fresh_frontend(response):
+    if request.path.startswith(("/static/", "/api/")):
+        response.headers["Cache-Control"] = "no-store"
+    return response
 
 
 @app.get('/sportspace')

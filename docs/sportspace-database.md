@@ -4,7 +4,7 @@ PostgreSQL now stores players, teams, matches, awards, communities, posts, stori
 and preferences in `public.sportspace_state`, row 1, as a JSONB document.
 The original `/users` table is independent; it is not the player directory.
 Requests lock the state row so concurrent app workers cannot lose updates.
-This shared demo account is not authenticated multi-user account management.
+Separate player accounts and revocable login sessions are now supported. See accounts-and-photos.md for setup and limitations.
 
 The normal runtime uses `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER`, and
 `DB_PASSWORD` (see `db.py`). An explicit `SPORTSPACE_SOCIAL_DB` path selects
