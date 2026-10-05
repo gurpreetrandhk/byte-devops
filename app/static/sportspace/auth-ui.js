@@ -5,7 +5,7 @@ const accountReady=new Promise(resolve=>releaseAccount=resolve);
 const account={userId:null};
 window.fetch=async function(input,options={}){
   const url=typeof input==='string'?input:input.url;
-  if(url.startsWith('/api/arena')||url.startsWith('/api/social'))await accountReady;
+  if(url.startsWith('/api/arena')||url.startsWith('/api/social')||url.startsWith('/api/messages'))await accountReady;
   if(url.startsWith('/api/'))options={...options,headers:{...options.headers,'X-Dhoyo-Request':'1'}};
   const result=await nativeFetch(input,options);
   if(result.status===401&&!url.startsWith('/api/auth/'))showAccountForm(false,'Your session has expired. Sign in again.');
@@ -27,6 +27,7 @@ function accountIcon(name){
   return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths[name]||paths.arrow}</svg>`;
 }
 function showAccountForm(register=false,message=''){
+  document.querySelectorAll('dialog[open]').forEach(dialog=>dialog.close());
   let overlay=document.getElementById('account-screen');
   if(!overlay){overlay=document.createElement('section');overlay.id='account-screen';overlay.setAttribute('aria-label','Player account access');document.body.append(overlay);}
   document.querySelector('.shell').inert=true;document.querySelector('.sidebar').inert=true;document.querySelector('.app-bottom-nav').inert=true;
@@ -44,6 +45,10 @@ function showAccountForm(register=false,message=''){
         <h1>Your people.<br><span>Your game.</span></h1>
         <p>Find your squad. Share your highlights.<br>Make every game a story worth telling.</p>
         <div class="account-pills"><span>ON THE FIELD</span><span>ON THE SERVER</span><span>IN GOOD COMPANY</span></div>
+        <div class="account-stickers" aria-label="Sports sticker pack">
+          <div class="account-sticker-strip"></div>
+          <p><strong>Big plays. Bigger reactions.</strong><span>Sign in and send a little good energy to your teammates.</span></p>
+        </div>
         <div class="account-quest">${accountIcon('flag')}<div><strong>Great games. Even better company.</strong><span>Your next teammate is out there.</span></div></div>
       </div>
       <form class="account-form" aria-labelledby="account-title">
@@ -73,6 +78,16 @@ function showAccountForm(register=false,message=''){
     <footer class="account-footer"><span>BUILT FOR THE LOVE OF THE GAME</span><span>FIND YOUR SQUAD. MAKE YOUR MARK.${accountIcon('arrow')}</span></footer>`;
   document.body.classList.remove('account-pending');
   overlay.querySelector('.account-error').textContent=message;
+  const stickerStrip=overlay.querySelector('.account-sticker-strip');
+  RingStickers.ready.then(items=>{
+    if(!stickerStrip.isConnected)return;
+    for(const sticker of items){
+      const image=document.createElement('img');
+      image.className='account-sticker';image.src=sticker.image;image.alt=sticker.name;
+      image.width=128;image.height=128;stickerStrip.append(image);
+    }
+    if(!items.length)stickerStrip.closest('.account-stickers').hidden=true;
+  });
   overlay.querySelector('.account-switch').onclick=()=>showAccountForm(!register);
   overlay.querySelectorAll('[data-account-mode]').forEach(button=>button.onclick=()=>{
     const nextRegister=button.dataset.accountMode==='register';

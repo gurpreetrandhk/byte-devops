@@ -18,3 +18,9 @@ Lighting/mood: dramatic night-time floodlights, soft cyan mist, subtle lime ligh
 Color palette: midnight navy, black green, cool teal, restrained electric lime highlights; no bright purple.
 Constraints: no text, no letters, no logos, no watermarks, no UI, no buttons, no people, no weapons. This is artwork only, not a webpage screenshot.
 ```
+
+The `stickers/` directory contains eight original, hand-authored SVG sports
+stickers with transparent backgrounds, white outlines and the app's lime, teal
+and warm accent colors. `../stickers.json` is their shared catalog for the login
+preview, private message picker and server send whitelist. These assets are
+bundled locally and contain no third-party images or external SVG references.

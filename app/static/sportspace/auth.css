@@ -150,13 +150,21 @@ body.account-visible { overflow: hidden; }
   align-items: center;
   gap: 12px;
   width: fit-content;
-  margin-top: 68px;
+  margin-top: 28px;
   padding: 14px 18px;
   border-left: 2px solid var(--account-lime);
   background: linear-gradient(90deg, #0c1b23d9, #0c1b2380);
   border-radius: 0 6px 6px 0;
   backdrop-filter: blur(8px);
 }
+.account-stickers { margin-top: 30px; max-width: 520px; }
+.account-stickers[hidden] { display: none; }
+.account-sticker-strip { display: grid; grid-template-columns: repeat(8, minmax(0, 1fr)); gap: 2px; align-items: center; }
+.account-sticker { width: 100%; height: auto; filter: drop-shadow(0 5px 6px #0005); transform: rotate(-8deg); transition: transform .2s; }
+.account-sticker:nth-child(even) { transform: rotate(8deg) translateY(-5px); }
+.account-sticker:hover { transform: translateY(-8px) rotate(0); }
+#account-screen .account-stickers p { margin: 13px 0 0; font-size: 12px; line-height: 1.6; color: #e2efda; }
+.account-stickers p > span { display: block; color: #aebec7; font-size: 11px; margin-top: 4px; }
 .account-quest > svg { width: 24px; height: 24px; color: var(--account-lime); }
 .account-quest strong { display: block; font-size: 11px; font-weight: 650; }
 .account-quest div > span { display: block; margin-top: 6px; color: #aebec7; font-size: 10px; }
@@ -265,6 +273,9 @@ body.account-visible { overflow: hidden; }
   #account-screen .account-welcome h1 { margin: 18px 0 14px; font-size: clamp(44px, 10vw, 64px); letter-spacing: -2.5px; }
   #account-screen .account-welcome > p { display: block; font-size: 12px; line-height: 1.7; }
   #account-screen .account-pills, .account-quest { display: none; }
+  .account-stickers { margin-top: 22px; }
+  #account-screen .account-stickers p { font-size: 11px; }
+  .account-stickers p > span { font-size: 10px; }
   #account-screen .account-form { padding: 25px; border-radius: 13px; }
   .account-auth-tabs { margin-block: 20px 24px; }
   #account-screen .account-form h2 { font-size: 25px; }

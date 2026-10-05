@@ -3,6 +3,7 @@ import logging
 from flask import Flask, jsonify, request, redirect
 from social import social
 from arena import arena
+from messages import messages
 from db import (
     initialize_database,
     test_database_connection,
@@ -16,6 +17,7 @@ import os
 app.config["AUTH_COOKIE_SECURE"] = os.environ.get("AUTH_COOKIE_SECURE") == "1"
 app.register_blueprint(social)
 app.register_blueprint(arena)
+app.register_blueprint(messages)
 from auth import install_auth
 install_auth(app)
 

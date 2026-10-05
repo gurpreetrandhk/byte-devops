@@ -5,7 +5,8 @@ own highlights, players, awards and squads. The game-inspired interface uses a
 local cinematic arena background, dark navy and teal surfaces, lime accents,
 photo stories, social posts, and subtle motion that respects reduced-motion
 settings. Login and sign-up share the arena artwork, with responsive player
-access cards, password visibility controls and account error messages.
+access cards, password visibility controls, account error messages and a local
+eight-sticker sports pack.
 
 ## Assign Work To AI Teams
 
@@ -106,6 +107,28 @@ rosters, results and award events. Pending applicants are not accepted connectio
 Seeded historical game and award totals are distinguished from detailed records.
 Profiles include follow/support actions, editable geography and a copy-link button.
 
+## Private sticker messages
+
+Sign in, open **Messages** in the top bar, then find another registered player by
+name or sport. Select a player and choose a sticker to send it. The pack includes
+Good game, fire, a trophy, a wave, a heart, a football, a star and a fist bump.
+Registered players can also open Messages from another account's profile.
+Sample player profiles are excluded because they have no account to receive messages.
+
+Conversations persist in the same PostgreSQL or explicit local SQLite state as
+accounts. Only the sender and recipient can read their shared messages. The
+server derives the sender from the session and accepts only catalog sticker IDs.
+The inbox shows unread counts and refreshes incoming stickers while open.
+Opening a conversation marks its incoming stickers as read. Stickers load from
+local SVG assets and do not require an external sticker service.
+
+| Method | Endpoint | Behavior |
+| --- | --- | --- |
+| GET | `/api/messages/players?q={query}` | Find other registered players by name or sport |
+| GET | `/api/messages/conversations` | Own conversations and unread counts |
+| GET | `/api/messages/conversations/{playerId}` | Own conversation with that player; mark incoming stickers read |
+| POST | `/api/messages/conversations/{playerId}` | Send `{ "stickerId": "gg" }` to another registered player |
+
 `POST /api/arena/location/resolve` resolves coarse device coordinates through
 [Nominatim reverse geocoding](https://nominatim.org/release-docs/latest/api/Reverse/).
 It stores the returned city/state/country and a cache fingerprint, not raw
@@ -148,6 +171,9 @@ Fixtures marked live are sample match states, not a live sports data integration
 
 - `index.html`: page structure and accessible dialog.
 - `auth-ui.js` / `auth.css`: player login, sign-up and session access UI.
+- `stickers.js` / `stickers.json`: shared local sticker catalog and login preview.
+- `messages.js` / `messages.css`: private sticker inbox and recipient search.
+- `assets/stickers/`: original SVG sports stickers.
 - `game.css`: arena artwork, game-inspired community styling and reactions.
 - `assets/game-arena.webp`: local optimized arena artwork. See
   [the generation prompt](assets/README.md) for provenance.
@@ -163,6 +189,7 @@ Fixtures marked live are sample match states, not a live sports data integration
 - `../../geography.py`: existing demo geography migration and scope ordering.
 - `../../social.py`: social API and recommendation scoring.
 - `../../arena.py`: player achievements, supporter ledger, teams and demo awards.
+- `../../messages.py`: authenticated private conversations, delivery and unread counts.
 
 ## Backend implementation
 
