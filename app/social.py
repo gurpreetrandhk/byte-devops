@@ -105,7 +105,7 @@ def public(post, data):
     from arena import ensure_arena
     player = next((p for p in ensure_arena(data)['players'] if p['id'] == post.get('authorId')), None)
     identity = {key: player[key] for key in ('name', 'initials')} if player else {}
-    return {**{key: value for key, value in post.items() if key not in ('baseSaves', 'likedBy', 'savedBy')}, **identity, 'avatar': player.get('avatar', '') if player else '', 'rank': rank(post, data), 'time': post['createdAt']}
+    return {**{key: value for key, value in post.items() if key not in ('baseSaves', 'likedBy', 'savedBy', 'reactionsBy')}, **identity, 'reactionCounts': {key: list(post.get('reactionsBy', {}).values()).count(key) for key in ('fire', 'mvp', 'clap')}, 'myReaction': post.get('reactionsBy', {}).get(current_user_id()), 'avatar': player.get('avatar', '') if player else '', 'rank': rank(post, data), 'time': post['createdAt']}
 
 
 def active_stories(data):
@@ -255,9 +255,11 @@ def create_post():
 
 @social.post('/posts/<post_id>/<action>')
 def engage(post_id, action):
-    if action not in ('like', 'save', 'comments'):
+    if action not in ('like', 'save', 'comments', 'reaction'):
         return jsonify(error='Unknown action'), 404
     payload = body()
+    if action == 'reaction' and payload.get('reaction') not in ('fire', 'mvp', 'clap'):
+        return jsonify(error='Choose a valid reaction'), 400
     if action == 'comments' and not string(payload.get('text'), 1000):
         return jsonify(error='Comment must contain 1-1000 characters'), 400
     with state() as data:
@@ -267,6 +269,12 @@ def engage(post_id, action):
         if action == 'like':
             post['liked'] = not post['liked']
             post['likes'] += 1 if post['liked'] else -1
+        elif action == 'reaction':
+            reactions = post.setdefault('reactionsBy', {})
+            if reactions.get(current_user_id()) == payload['reaction']:
+                reactions.pop(current_user_id())
+            else:
+                reactions[current_user_id()] = payload['reaction']
         elif action == 'save':
             post['saved'] = not post['saved']
         else:

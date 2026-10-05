@@ -1,9 +1,11 @@
 # Ring
 
 Ring is the sports social home. Arenas are communities inside Ring, with their
-own highlights, players, awards and squads. The dark interface uses lime, cyan
-and coral accents, photo stories, social posts, and subtle motion that respects
-reduced-motion settings.
+own highlights, players, awards and squads. The game-inspired interface uses a
+local cinematic arena background, dark navy and teal surfaces, lime accents,
+photo stories, social posts, and subtle motion that respects reduced-motion
+settings. Login and sign-up share the arena artwork, with responsive player
+access cards, password visibility controls and account error messages.
 
 ## Assign Work To AI Teams
 
@@ -43,8 +45,9 @@ Opening `index.html` directly or using `python3 -m http.server` does not run the
 arena API. Match Updates, ground bookings and tournament demos remain available
 without it, but player rankings, support and team management require Flask.
 
-The first screen is Ring's personalized social feed and photo stories. Discover
-Arenas opens sport communities such as Afterhours FC and Zero Ping. Community
+Visitors first see the login page and can switch to sign-up to create their own
+player account. Signed-in players see Ring's personalized social feed and photo
+stories. Discover Arenas opens sport communities such as Afterhours FC and Zero Ping. Community
 pages contain Highlights, Players & awards, and Squads subsections, with breadcrumb
 navigation back to Ring. Arena membership persists separately from squad membership.
 Player profiles retain organizer awards, games, wins and 0.2-point community
@@ -54,8 +57,9 @@ The application persists player awards, team membership, support, posts,
 engagement, interests, follows and stories in PostgreSQL by default. The explicit
 `SPORTSPACE_SOCIAL_DB` override above uses SQLite for local development without
 Neon. Set it to a writable persistent path to keep local data outside `/tmp`.
-All visitors currently share one demo identity. This is not production login or
-a separate deployed microservice. Existing PostgreSQL user endpoints are unchanged.
+Accounts use individual player identities and session cookies. Login, sign-up
+and sign-out are served by `/api/auth`. The explicit demo identity used by older
+domain tests is separate from the normal account flow.
 
 Booking and tournament activity remains browser-local under `sportspace-v1`.
 There are no payments, shared booking inventory, or real event registrations.
@@ -143,6 +147,10 @@ Fixtures marked live are sample match states, not a live sports data integration
 ## Files
 
 - `index.html`: page structure and accessible dialog.
+- `auth-ui.js` / `auth.css`: player login, sign-up and session access UI.
+- `game.css`: arena artwork, game-inspired community styling and reactions.
+- `assets/game-arena.webp`: local optimized arena artwork. See
+  [the generation prompt](assets/README.md) for provenance.
 - `style.css`: responsive layout and visual styling.
 - `app.js`: sample data, rendering and browser-local actions.
 - `social.js`: refreshed social UI, story viewer, API integration and static fallback.

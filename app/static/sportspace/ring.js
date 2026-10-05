@@ -23,7 +23,8 @@ postHTML = function(p) {
     <div class="post-heading"><span class="avatar">${escape(p.initials)}</span><div>${player?playerLink(player):`<strong>${escape(p.name)}</strong>`}<small>${community?`<a href="#community/${community.id}">${escape(community.name)}</a>`:escape(p.sport)} <span> / ${escape(p.time)}${p.state?' / '+escape(p.state):''}${p.country?' / '+escape(p.country):''}</span></small></div>${player?`<a href="#player/${encodeURIComponent(player.id)}/awards" aria-label="${escape(player.name)} rank details">${rankBadge(player.rank)}</a>`:''}</div>
     <p class="post-text">${escape(p.text)}</p>
     ${p.image?`<div class="post-image-wrap"><img class="post-image" src="${escape(p.image)}" alt="${escape(p.sport)} highlight" loading="lazy">${player?.rank?`<a class="ring-image-badge" href="#player/${encodeURIComponent(player.id)}">${icon('star')} ${escape(player.rank)} player <span>${escape(player.city)}</span></a>`:''}</div>`:''}
-    <div class="post-actions"><div class="post-actions-left"><button data-like="${escape(p.id)}" class="${liked?'liked':''}" aria-pressed="${liked}" title="Like this moment">${icon('heart')} ${p.likes+Number(liked)}</button><button data-comment="${escape(p.id)}" title="Comment">${icon('message-circle')} ${p.comments.length}</button>${player&&player.id!==arena.data.currentUserId?`<button data-support="${escape(player.id)}" class="ring-support ${player.supported?'supported':''}" aria-pressed="${player.supported}" ${arena.busy?'disabled':''} title="${player.supported?'Remove your community star':'Support this player with 0.2 points'}">${icon('star')} ${player.supported?'Starred':'+0.2'}</button>`:''}</div><button data-save="${escape(p.id)}" aria-pressed="${(p.saved??state.saved.includes(p.id))}" title="Save moment" aria-label="Save moment">${icon('bookmark')}</button></div>
+    <div class="game-reactions" aria-label="React to this moment">${[['fire','🔥','On fire'],['mvp','🏆','MVP'],['clap','👏','Well played']].map(([key,emoji,label])=>`<button type="button" data-game-reaction="${key}" data-game-post="${escape(p.id)}" class="game-reaction ${p.myReaction===key?'selected':''}" aria-pressed="${p.myReaction===key}" aria-label="${label} reaction"><span class="game-emoji" aria-hidden="true">${emoji}</span><span>${label}</span><b>${p.reactionCounts?.[key]||0}</b></button>`).join('')}</div>
+    <div class="post-actions"><div class="post-actions-left"><button data-like="${escape(p.id)}" class="${liked?'liked':''}" aria-pressed="${liked}" title="Good game!"><span class="game-emoji" aria-hidden="true">👍</span> GG <span class="reaction-count">${p.likes+Number(liked)}</span></button><button data-comment="${escape(p.id)}" title="Comment">${icon('message-circle')} ${p.comments.length}</button>${player&&player.id!==arena.data.currentUserId?`<button data-support="${escape(player.id)}" class="ring-support ${player.supported?'supported':''}" aria-pressed="${player.supported}" ${arena.busy?'disabled':''} title="${player.supported?'Remove your community star':'Support this player with 0.2 points'}">${icon('star')} ${player.supported?'Starred':'+0.2'}</button>`:''}</div><button data-save="${escape(p.id)}" aria-pressed="${(p.saved??state.saved.includes(p.id))}" title="Save moment" aria-label="Save moment">${icon('bookmark')}</button></div>
     ${p.comments.slice(-2).map(c=>`<div class="comment"><strong>${escape(c.name)}</strong> ${escape(c.text)}</div>`).join('')}
     ${p.comments.length>2?`<button class="text-button" data-all-comments="${escape(p.id)}">View all ${p.comments.length} comments</button>`:''}
     <form class="comment-form" data-post="${escape(p.id)}"><input aria-label="Comment on ${escape(p.name)}'s post" placeholder="Give them some love..." required maxlength="500"><button type="submit">Post</button></form>
@@ -139,3 +140,15 @@ compose=function(){
 const globalAddStory=addStory;
 addStory=function(){globalAddStory();const c=view==='community'?communities().find(c=>c.id===ring.route.split('/')[1]):null;if(c&&$('#modal [name="sport"]'))$('#modal [name="sport"]').value=c.sport;};
 navigate(location.hash.slice(1));
+
+const pendingGameReactions=new Set();
+document.addEventListener('click',async event=>{
+  const button=event.target.closest('[data-game-reaction]');if(!button)return;
+  const id=button.dataset.gamePost;if(pendingGameReactions.has(id))return;
+  pendingGameReactions.add(id);button.disabled=true;
+  try{const result=await api('/posts/'+encodeURIComponent(id)+'/reaction','POST',{reaction:button.dataset.gameReaction});
+    const post=state.posts.find(p=>p.id===id);if(post)Object.assign(post,{reactionCounts:result.reactionCounts,myReaction:result.myReaction});
+    if(typeof playerHub!=='undefined')for(const profile of playerHub.profiles.values()){const p=profile.posts.find(p=>p.id===id);if(p)Object.assign(p,{reactionCounts:result.reactionCounts,myReaction:result.myReaction});}
+    render();if(result.myReaction)toast(({fire:'🔥 On fire!',mvp:'🏆 MVP energy!',clap:'👏 Well played!'})[result.myReaction]);
+  }catch(error){toast(error.message);}finally{pendingGameReactions.delete(id);button.disabled=false;}
+});

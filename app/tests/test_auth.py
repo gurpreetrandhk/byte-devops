@@ -68,3 +68,23 @@ def test_login_errors_csrf_duplicate_and_revocation(clients):
     a.post('/api/auth/logout',json={},headers=HEADERS)
     b.set_cookie('dhoyo_session',cookie)
     assert b.get('/api/arena').status_code==401
+
+
+def test_game_reactions_are_persistent_private_and_do_not_award_rank(clients):
+    a,b=clients
+    aid=register(a,'game-a@example.com').json['userId']
+    register(b,'game-b@example.com')
+    post=a.post('/api/social/posts',json={'text':'Great match','sport':'Football'},headers=HEADERS).json
+    url='/api/social/posts/'+post['id']+'/reaction'
+    assert a.post(url,json={'reaction':'fire'},headers=HEADERS).json['reactionCounts']['fire']==1
+    result=b.post(url,json={'reaction':'mvp'},headers=HEADERS).json
+    assert result['reactionCounts']=={'fire':1,'mvp':1,'clap':0}
+    assert 'reactionsBy' not in result
+    result=a.post(url,json={'reaction':'clap'},headers=HEADERS).json
+    assert result['reactionCounts']=={'fire':0,'mvp':1,'clap':1}
+    assert a.get('/api/arena/players/'+aid).json['player']['awards']==dict(Star=0,Diamond=0,Gold=0,Silver=0)
+    result=a.post(url,json={'reaction':'clap'},headers=HEADERS).json
+    assert result['myReaction'] is None
+    assert a.post(url,json={'reaction':'invalid'},headers=HEADERS).status_code==400
+    result=next(p for p in b.get('/api/social/feed').json['posts'] if p['id']==post['id'])
+    assert result['myReaction']=='mvp' and result['reactionCounts']['mvp']==1
