@@ -228,7 +228,7 @@ body.account-visible { overflow: hidden; }
 .account-password-toggle { position: absolute; inset: 0 4px 0 auto; display: grid; place-items: center; width: 40px; padding: 0; border-radius: 5px; color: #96aab5; }
 .account-password-toggle svg { width: 19px; height: 19px; }
 .account-password-toggle:hover { color: var(--account-lime); background: #d4fa620a; }
-#account-screen .account-forgot { display: block; margin: 13px 0 0 auto; padding: 4px 0; color: var(--account-lime); font-size: 11px; }
+#account-screen .account-forgot { display: block; width: 100%; min-height: 42px; margin: 16px 0 0; padding: 10px 12px; border: 1px solid #58733f; border-radius: 7px; background: #d4fa6208; color: var(--account-lime); font-size: 12px; font-weight: 650; text-align: center; }
 .account-forgot:hover { text-decoration: underline; text-underline-offset: 3px; }
 #account-screen .account-form .account-password-help { margin-top: 7px; color: #9dafb9; font-size: 10px; }
 #account-screen .account-location { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 12px; }
@@ -244,6 +244,8 @@ body.account-visible { overflow: hidden; }
 #account-screen .account-form .account-switch-line { margin: 22px 0; color: #aebec7; text-align: center; font-size: 11px; }
 #account-screen .account-switch { width: auto; padding: 0 0 0 3px; color: var(--account-lime); font-size: 11px; font-weight: 650; }
 .account-switch:hover { text-decoration: underline; text-underline-offset: 3px; }
+#account-screen .account-return { display: block; width: 100%; padding: 10px; margin-bottom: 16px; color: var(--account-lime); font-size: 12px; }
+#account-code { letter-spacing: .3em; font-size: 17px!important; }
 .account-card-footer { display: flex; align-items: center; justify-content: center; gap: 7px; padding-top: 18px; border-top: 1px solid #b7d3e01a; color: #8fa5ae; font-size: 9px; line-height: 1.6; }
 .account-card-footer svg { width: 14px; height: 14px; flex-shrink: 0; color: #abc487; }
 #account-screen .account-footer { display: flex; align-items: center; justify-content: space-between; flex-shrink: 0; gap: 20px; margin: 0; padding: 18px 0 0; border-top: 1px solid #c8e1ef1c; color: #aec1cd; font-size: 8px; font-weight: 600; letter-spacing: 1.6px; }
@@ -253,6 +255,28 @@ body.account-visible { overflow: hidden; }
 .account-register .account-auth-tabs { margin-block: 20px; }
 #account-screen.account-register .account-form-intro { margin-bottom: 20px; }
 #account-screen.account-register .account-form label { margin-top: 14px; }
+
+.account-security-dialog { width: 500px; max-width: calc(100vw - 24px); max-height: calc(100dvh - 32px); padding: 0; border: 1px solid #3b4e5c; border-radius: 14px; background: #101d2b; color: #f2f6ee; overflow: auto; color-scheme: dark; }
+.account-security-dialog::backdrop { background: #050c17ba; backdrop-filter: blur(5px); }
+.security-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 22px 24px; border-bottom: 1px solid #334655; }
+.security-heading h2 { margin: 7px 0 0; font-size: 22px; }
+.security-heading .eyebrow { color: #d4fa62; }
+.security-close { min-width: 36px; min-height: 36px; border-radius: 50%; border: 1px solid #445967; color: #e8eff0; font-size: 22px; }
+#account-security-form { padding: 22px 24px; }
+.security-intro, .security-recovery p { margin: 0 0 20px; color: #a8b8c4; font-size: 12px; line-height: 1.8; }
+#account-security-form label { display: block; margin-top: 16px; font-size: 12px; font-weight: 650; }
+#account-security-form input { display: block; width: 100%; min-width: 0; min-height: 44px; margin-top: 8px; padding: 12px; border: 1px solid #405362; border-radius: 7px; background: #0b1723; color: #f2f6ee; font-size: 13px; }
+#security-password-help { display: block; margin-top: 7px; color: #a8b8c4; font-size: 10px; }
+.security-error { color: #ffc3b8; font-size: 12px; line-height: 1.7; }
+.security-error:empty { display: none; }
+.security-submit { width: 100%; min-height: 44px; margin-top: 22px; background: #d4fa62; color: #14200c; border-radius: 7px; }
+.security-recovery { margin-top: 24px; padding-top: 18px; border-top: 1px solid #334655; }
+.security-recovery strong { font-size: 12px; }
+.security-recovery p { margin: 8px 0 10px; }
+.security-recovery button { width: 100%; min-height: 42px; padding: 10px; border: 1px solid #647c39; border-radius: 7px; color: #d4fa62; font-size: 12px; }
+.account-security-dialog :is(button,input):focus-visible, #account-screen .account-forgot:focus-visible, #account-screen .account-return:focus-visible { outline: 2px solid #d4fa62; outline-offset: 3px; }
+.account-security-dialog :disabled { opacity: .6; cursor: wait; }
+@media(max-width:560px) { .security-heading { padding: 18px; } .security-heading h2 { font-size: 20px; } #account-security-form { padding: 18px; } }
 
 @media (min-width: 1500px) {
   #account-screen { padding-inline: max(5vw, calc((100vw - 1440px) / 2)); }

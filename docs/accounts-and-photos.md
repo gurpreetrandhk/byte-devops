@@ -24,10 +24,13 @@ the database stores hashes of opaque session tokens, expires them after seven da
 and revokes them on logout. JSON mutations require the X-Dhoyo-Request header and
 reject cross-origin requests. The old demo organizer header grants no permissions.
 For an HTTPS deployment, set AUTH_COOKIE_SECURE=1 (especially behind a TLS proxy).
-Registration currently does not verify email ownership. **Forgot password?** sends
-a single-use email link that expires after 30 minutes. Resetting the password
+Registration currently does not verify email ownership. **Forgot password? Reset
+password** sends a six-digit email verification code that expires after ten
+minutes and can be used once. Existing reset links continue to work. Resetting the password
 revokes existing sessions and clears login lockouts, then returns the player to
-the login form. Configure the sender using the [password recovery setup](password-reset.md).
+the login form. **Profile → Password & security** also supports a password
+change with the current password and a request for a recovery code. Configure
+the sender using the [password recovery setup](password-reset.md).
 Organizer administration is not implemented.
 
 The existing PostgreSQL sportspace_state JSONB row stores accounts, sessions,
@@ -37,6 +40,22 @@ serialize through its transaction lock. Legacy users is not an authentication ta
 Account and session fields are never included in public API responses.
 
 ## Photos
+
+Open **Friends & requests** on Home or in the menu. **Find players → Add friend**
+sends a request to another registered account; **Friend requests** shows requests
+you can accept or decline. Add friend is also available on registered player
+profiles. Sample profiles cannot receive requests. Sending works even if the
+friend-list refresh fails; the app offers a retry when a request cannot be sent.
+
+Use **Profile → Edit profile → Who can see your photos? → Friends only → Save
+changes** to restrict profile photos, photo posts and stories, including existing
+photos. Only you and accepted friends can see them. Pending requests, followers
+and teammates do not grant access. Your name, sporting results and text posts stay
+visible. Removing a friendship revokes photo access. The app checks access on the
+server and clears cached photos when the friendship changes. Existing profiles
+default to **Everyone on Ring**. People who previously viewed a public photo may
+have saved a copy; changing privacy cannot remove those copies or protect the
+original source of an external image URL.
 
 Share → Add a photo uses the browser/OS file picker. The composer shows a preview,
 a caption counter and removal control. Images keep their aspect ratio. The browser

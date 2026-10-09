@@ -298,7 +298,7 @@ test('forgot password offers an email-only form and preserves the email while sw
   page.click('.account-forgot');
   assert.equal(page.form.getAttribute('id'), 'account-forgot-form');
   assert.equal(page.form.getAttribute('method'), 'post');
-  assert.equal(page.form.getAttribute('action'), '/api/auth/forgot-password');
+  assert.equal(page.form.getAttribute('action'), '/api/auth/request-password-code');
   assert.deepEqual(page.form.fields.map(field => field.name), ['email']);
   assert.equal(page.form.querySelector('[name="email"]').value, 'player@example.com');
   page.fill({email: 'corrected@example.com'});
@@ -310,14 +310,14 @@ test('forgot password offers an email-only form and preserves the email while sw
   assert.equal(page.form.querySelector('[name="email"]').value, 'corrected@example.com');
 });
 
-test('forgot password shows the neutral server response without saving credentials or navigating', async () => {
-  const notice = 'If an account uses this email, a reset link has been sent.';
-  const page = await accountPage({authenticate: () => response({message: notice})});
+test('forgot password opens the code form without saving credentials or navigating', async () => {
+  const notice = 'If an account uses this email, a verification code has been sent.';
+  const page = await accountPage({authenticate: () => response({message: notice, challengeId: 'c'.repeat(43)})});
   page.click('.account-forgot');
   page.fill({email: '  player@example.com  '});
   await page.submit();
-  assert.deepEqual(page.requests, [{url: '/api/auth/forgot-password', payload: {email: 'player@example.com'}}]);
-  assert.equal(page.form.getAttribute('id'), 'account-forgot-form');
+  assert.deepEqual(page.requests, [{url: '/api/auth/request-password-code', payload: {email: 'player@example.com'}}]);
+  assert.equal(page.form.getAttribute('id'), 'account-code-form');
   assert.equal(page.form.notice.getAttribute('role'), 'status');
   assert.equal(page.form.notice.textContent, notice);
   assert.equal(page.form.error.textContent, '');
@@ -325,6 +325,78 @@ test('forgot password shows the neutral server response without saving credentia
   assert.equal(page.form.getAttribute('aria-busy'), 'false');
   assert.equal(page.stored.length, 0);
   assert.deepEqual(page.navigations, []);
+});
+
+test('direct password recovery opens the email form and removes its hash', async () => {
+  const page = await accountPage({hash: '#forgot-password'});
+  assert.deepEqual(page.historyChanges, ['/ring#ring']);
+  assert.equal(page.form.getAttribute('id'), 'account-forgot-form');
+  assert.equal(page.form.getAttribute('action'), '/api/auth/request-password-code');
+});
+
+test('verification code uses numeric keyboard and one-time-code autofill', async () => {
+  const page = await accountPage({authenticate: () => response({message: 'Check your email.', challengeId: 'c'.repeat(43)})});
+  page.click('.account-forgot');
+  page.fill({email: 'player@example.com'});
+  await page.submit();
+  assert.deepEqual(page.form.fields.map(field => field.name), ['code', 'password', 'passwordConfirm']);
+  const code = page.form.querySelector('[name="code"]');
+  assert.equal(code.getAttribute('inputmode'), 'numeric');
+  assert.equal(code.getAttribute('autocomplete'), 'one-time-code');
+  assert.equal(code.getAttribute('pattern'), '[0-9]{6}');
+  assert.equal(code.getAttribute('maxlength'), '6');
+  assert.equal(page.form.getAttribute('action'), '/api/auth/reset-password-code');
+  assert.deepEqual(page.historyChanges, []);
+});
+
+test('malformed code and mismatching confirmation do not submit a reset', async () => {
+  const page = await accountPage({authenticate: () => response({message: 'Check your email.', challengeId: 'c'.repeat(43)})});
+  page.click('.account-forgot'); page.fill({email: 'player@example.com'}); await page.submit();
+  page.fill({code: '123456', password: 'new-password-123', passwordConfirm: 'different-password-123'});
+  await page.submit();
+  assert.match(page.form.error.textContent, /match/i);
+  page.fill({code: 'abc123', passwordConfirm: 'new-password-123'});
+  await page.submit();
+  assert.match(page.form.error.textContent, /six-digit/i);
+  assert.equal(page.requests.length, 1);
+  assert.equal(page.form.submit.disabled, false);
+});
+
+test('code reset sends only the challenge, code and exact password and then offers login', async () => {
+  const notice = 'Your password has been reset. Sign in with your new password.';
+  const challengeId = 'c'.repeat(43);
+  const page = await accountPage({authenticate: ({url}) => response(url === '/api/auth/request-password-code' ? {message: 'Check your email.', challengeId} : {message: notice})});
+  page.click('.account-forgot'); page.fill({email: 'player@example.com'}); await page.submit();
+  page.fill({code: '001234', password: '  new-password-123  ', passwordConfirm: '  new-password-123  '});
+  await page.submit();
+  assert.deepEqual(page.requests[1], {url: '/api/auth/reset-password-code', payload: {challengeId, code: '001234', password: '  new-password-123  '}});
+  assert.equal(page.form.getAttribute('id'), 'account-login-form');
+  assert.equal(page.form.notice.textContent, notice);
+  assert.equal(page.form.querySelector('[name="email"]').value, 'player@example.com');
+  assert.equal(page.form.querySelector('[name="password"]').value, '');
+  assert.equal(vm.runInContext('accountRecoveryChallenge', page.context), '');
+  assert.equal(page.stored.length, 0);
+});
+
+test('invalid code keeps the form usable and resend preserves the recovery email', async () => {
+  const page = await accountPage({authenticate: ({url}) => url === '/api/auth/request-password-code' ? response({message: 'Check your email.', challengeId: 'c'.repeat(43)}) : response({error: 'This code is invalid or has expired.'}, 400)});
+  page.click('.account-forgot'); page.fill({email: 'player@example.com'}); await page.submit();
+  page.fill({code: '123456', password: 'new-password-123', passwordConfirm: 'new-password-123'});
+  await page.submit();
+  assert.equal(page.form.getAttribute('id'), 'account-code-form');
+  assert.match(page.form.error.textContent, /invalid/i);
+  assert.equal(page.form.submit.disabled, false);
+  page.click('.account-forgot');
+  assert.equal(page.form.getAttribute('id'), 'account-forgot-form');
+  assert.equal(page.form.querySelector('[name="email"]').value, 'player@example.com');
+});
+
+test('an incomplete code request response keeps the request retryable', async () => {
+  const page = await accountPage({authenticate: () => response({message: 'Incomplete response'})});
+  page.click('.account-forgot'); page.fill({email: 'player@example.com'}); await page.submit();
+  assert.equal(page.form.getAttribute('id'), 'account-forgot-form');
+  assert.match(page.form.error.textContent, /verification code/i);
+  assert.equal(page.form.submit.disabled, false);
 });
 
 test('forgot password errors preserve the email and allow retry', async () => {

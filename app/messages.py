@@ -8,6 +8,7 @@ from flask import Blueprint, current_app, jsonify, request
 from auth import current_user_id
 from arena import ensure_arena
 from social import now, raw_state
+from privacy import can_view_photos, redact_photo_aliases
 
 
 messages = Blueprint('messages', __name__, url_prefix='/api/messages')
@@ -21,8 +22,11 @@ def registered_players(data):
             if player['id'] in account_ids}
 
 
-def public_player(player):
-    return {key: player.get(key, '') for key in PLAYER_FIELDS}
+def public_player(player, data):
+    result = {key: player.get(key, '') for key in PLAYER_FIELDS}
+    if not can_view_photos(data, player['id']):
+        result['avatar'] = ''
+    return redact_photo_aliases(result, data)
 
 
 def public_message(message):
@@ -50,7 +54,7 @@ def players():
     user_id = current_user_id()
     query = request.args.get('q', '').strip().casefold()
     with raw_state() as data:
-        values = [public_player(player) for player_id, player in registered_players(data).items()
+        values = [public_player(player, data) for player_id, player in registered_players(data).items()
                   if player_id != user_id and
                   (not query or query in (player['name'] + ' ' + player['sport']).casefold())]
         values.sort(key=lambda player: (player['name'].casefold(), player['id']))
@@ -78,7 +82,7 @@ def conversations():
             latest = max(conversation, key=lambda item: (item['createdAt'], item['id']))
             unread = sum(message['recipientId'] == user_id and not message.get('readAt')
                          for message in conversation)
-            values.append(dict(player=public_player(players_by_id[player_id]),
+            values.append(dict(player=public_player(players_by_id[player_id], data),
                                lastMessage=public_message(latest), unreadCount=unread))
         values.sort(key=lambda item: (item['lastMessage']['createdAt'], item['lastMessage']['id']), reverse=True)
         return jsonify(conversations=values, unreadCount=sum(item['unreadCount'] for item in values))
@@ -99,7 +103,7 @@ def conversation(player_id):
             if message['recipientId'] == user_id and not message.get('readAt'):
                 message['readAt'] = read_at
         values.sort(key=lambda item: (item['createdAt'], item['id']))
-        return jsonify(player=public_player(player), messages=[public_message(message) for message in values],
+        return jsonify(player=public_player(player, data), messages=[public_message(message) for message in values],
                        currentUserId=user_id)
 
 

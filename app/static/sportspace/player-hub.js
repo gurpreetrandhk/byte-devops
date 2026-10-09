@@ -4,6 +4,7 @@ const hubBaseRender=render,hubBaseAPI=arenaAPI,hubBaseSocialAPI=api;
 const hubPlayerURL=(id,tab='moments')=>'#player/'+encodeURIComponent(id)+'/'+tab;
 const hubLocation=p=>[p.city,p.state,p.country].filter(Boolean).join(' / ');
 const hubEmpty=message=>`<div class="hub-empty"><p>${escape(message)}</p></div>`;
+const hubPrivatePhotos=()=>'<div class="hub-private-photos" role="status"><strong>Photos shared with friends only</strong><p>Send a friend request using Add friend above. Photos and stories become visible after the request is accepted.</p></div>';
 
 function geographyToolbar(){
   const {country='India',state:region=''}=social.preferences;
@@ -27,8 +28,9 @@ async function hubRaster(file){
 function hubMediaForm(story=false){
   const community=view==='community'?communities().find(c=>c.id===ring.route.split('/')[1]):null;
   const me=arenaPlayer(arena.data?.currentUserId);if(!me){toast('Your profile is still loading. Please try again.');return;}
+  const photoAudience=me.photoPrivacy==='friends'?'Photos and stories: friends only':'Photos and stories: everyone on Ring';
   let selectedImage='',processing=false,sequence=0;
-  openSocialForm(story?'A moment from your day':'What’s happening in your game?',`<div class="moment-author">${arenaAvatar(me)}<div><strong>${escape(me.name)}</strong><small>${escape(hubLocation(me))} · Shared with the community</small></div></div><textarea class="moment-caption" name="text" ${story?'':'required'} maxlength="${story?500:3000}" placeholder="A great match, a small win, or a shout-out to your teammates…" aria-label="Post caption"></textarea><span class="moment-counter">0 / ${story?500:3000}</span><label class="field">Sport<select name="sport">${sports.slice(1).map(s=>`<option ${s===(community?.sport||me.sport)?'selected':''}>${escape(s)}</option>`).join('')}</select></label><input id="moment-file" type="file" accept="image/*" hidden><button type="button" class="moment-photo-picker"><strong>+ Add a photo</strong><small>Choose from your photos or files · up to 5 MB</small></button><div class="moment-preview" hidden><img alt="Your selected photo"><button type="button">Remove photo</button></div><details class="moment-help"><summary>Using Google Photos, Drive, iCloud or OneDrive?</summary><p>Choose Add a photo, then use the photo library or file providers available on your device. On iPhone or iPad, use Photo Library or Browse. On a computer, choose a downloaded or synced file. If your cloud library is not listed, download the photo from that service first, then select it here.</p></details><p class="moment-error" role="alert"></p><p class="modal-note">${story?'Your story stays visible for 24 hours.':'Your photo keeps its proportions. Add a caption that tells the story.'}</p>`,story?'Share story':'Publish post',async data=>{
+  openSocialForm(story?'A moment from your day':'What’s happening in your game?',`<div class="moment-author">${arenaAvatar(me)}<div><strong>${escape(me.name)}</strong><small>${escape(hubLocation(me))} · ${escape(photoAudience)}</small></div></div><textarea class="moment-caption" name="text" ${story?'':'required'} maxlength="${story?500:3000}" placeholder="A great match, a small win, or a shout-out to your teammates…" aria-label="Post caption"></textarea><span class="moment-counter">0 / ${story?500:3000}</span><label class="field">Sport<select name="sport">${sports.slice(1).map(s=>`<option ${s===(community?.sport||me.sport)?'selected':''}>${escape(s)}</option>`).join('')}</select></label><input id="moment-file" type="file" accept="image/*" hidden><button type="button" class="moment-photo-picker"><strong>+ Add a photo</strong><small>Choose from your photos or files · up to 5 MB</small></button><div class="moment-preview" hidden><img alt="Your selected photo"><button type="button">Remove photo</button></div><details class="moment-help"><summary>Using Google Photos, Drive, iCloud or OneDrive?</summary><p>Choose Add a photo, then use the photo library or file providers available on your device. On iPhone or iPad, use Photo Library or Browse. On a computer, choose a downloaded or synced file. If your cloud library is not listed, download the photo from that service first, then select it here.</p></details><p class="moment-error" role="alert"></p><p class="modal-note">${story?'Your story stays visible for 24 hours.':'Your photo keeps its proportions. Add a caption that tells the story.'}</p>`,story?'Share story':'Publish post',async data=>{
     if(processing)return false;
     if(story&&!selectedImage){error.textContent='Add a photo for your story.';return false;}
     const payload={sport:data.get('sport'),text:data.get('text').trim(),...(selectedImage?{image:selectedImage}:{})};
@@ -58,14 +60,17 @@ interests=function(){
   });
 };
 
-async function loadPlayerHub(id){
-  if(playerHub.loading.has(id)||playerHub.profiles.has(id)||playerHub.errors.has(id))return;
+async function loadPlayerHub(id,refresh=false){
+  if(playerHub.loading.has(id)||(!refresh&&(playerHub.profiles.has(id)||playerHub.errors.has(id))))return;
   playerHub.loading.add(id);
   const revision=playerHub.revision;
   try{
     const data=await arenaAPI('/players/'+encodeURIComponent(id));
     if(revision===playerHub.revision){
+      const previous=arenaPlayer(id);
+      if(data.player.canViewPhotos===false&&previous?.canViewPhotos!==false)window.RingFriends?.invalidateMedia?.([id]);
       playerHub.profiles.set(id,data);
+      playerHub.errors.delete(id);
       // A player can join after the visitor's Arena overview was loaded.
       if(arena.data){
         const index=arena.data.players.findIndex(p=>p.id===id);
@@ -152,11 +157,11 @@ playerPage=function(){
   const data=playerHub.profiles.get(id),error=playerHub.errors.get(id);
   const requested=arena.route.split('/')[2],tab=['matches','awards','photos'].includes(requested)?requested:'moments';
   const own=id===arena.data.currentUserId,teamCount=arena.data.teams.filter(t=>t.members.includes(id)).length;
-  const fullPhoto=p.cover||p.avatar||p.image;
-  const header=`<section class="hub-profile"><div class="hub-identity">${arenaAvatar(p)}<div><span class="eyebrow">PLAYER PROFILE</span><h2>${escape(p.name)}</h2><p>${escape(p.sport)} · ${escape(hubLocation(p))}</p>${p.bio?`<p class="hub-bio">${escape(p.bio)}</p>`:''}</div><div class="hub-profile-actions">${own?'<button type="button" class="primary" data-edit-profile>Edit profile</button><button type="button" data-hub-upload>Upload full photo</button>':`${supportButton(p)}<button type="button" data-follow="${escape(p.name)}">${social.preferences.following.includes(p.name)?'Following':'Follow player'}</button>`}<button type="button" data-hub-share="${escape(id)}">Copy profile link ↗</button></div></div><div class="hub-stats"><a href="${hubPlayerURL(id,'matches')}"><strong>${p.gamesPlayed}</strong><span>Games played ↗</span></a><a href="${hubPlayerURL(id,'matches')}"><strong>${p.wins}</strong><span>Wins / ${p.gamesPlayed?Math.round(p.wins/p.gamesPlayed*100):0}% rate ↗</span></a><a href="${hubPlayerURL(id,'awards')}">${rankBadge(p.rank)||'<strong>Unranked</strong>'}<span>Rank details ↗</span></a><a href="${hubPlayerURL(id,'connections')}"><strong>${data?.connections.length??'…'}</strong><span>Player connections ↗</span></a></div></section>`;
+  const photosHidden=p.canViewPhotos===false,fullPhoto=photosHidden?'':p.cover||p.avatar||p.image;
+  const header=`<section class="hub-profile"><div class="hub-identity">${arenaAvatar(p)}<div><span class="eyebrow">PLAYER PROFILE</span>${p.photoPrivacy==='friends'?'<span class="hub-photo-audience">Photos: friends only</span>':''}<h2>${escape(p.name)}</h2><p>${escape(p.sport)} · ${escape(hubLocation(p))}</p>${p.bio?`<p class="hub-bio">${escape(p.bio)}</p>`:''}</div><div class="hub-profile-actions">${own?'<button type="button" class="primary" data-edit-profile>Edit profile</button><button type="button" data-hub-upload>Upload full photo</button>':`${supportButton(p)}<button type="button" data-follow="${escape(p.name)}">${social.preferences.following.includes(p.name)?'Following':'Follow player'}</button>`}<button type="button" data-hub-share="${escape(id)}">Copy profile link ↗</button></div></div><div class="hub-stats"><a href="${hubPlayerURL(id,'matches')}"><strong>${p.gamesPlayed}</strong><span>Games played ↗</span></a><a href="${hubPlayerURL(id,'matches')}"><strong>${p.wins}</strong><span>Wins / ${p.gamesPlayed?Math.round(p.wins/p.gamesPlayed*100):0}% rate ↗</span></a><a href="${hubPlayerURL(id,'awards')}">${rankBadge(p.rank)||'<strong>Unranked</strong>'}<span>Rank details ↗</span></a><a href="${hubPlayerURL(id,'connections')}"><strong>${data?.connections.length??'…'}</strong><span>Player connections ↗</span></a></div></section>`;
   const tabs=`<nav class="hub-tabs" aria-label="Profile sections">${[['moments','Moments'],['matches','Matches'],['awards','Rank & awards'],['photos','Photos']].map(([key,label])=>`<a href="${hubPlayerURL(id,key)}" class="${tab===key?'active':''}" ${tab===key?'aria-current="page"':''}>${label}</a>`).join('')}</nav>`;
   const connections=hubProfileConnections(p,data);
-  const fullPhotoHTML=`<div class="hub-cover">${fullPhoto?`<button type="button" data-hub-photo="${escape(id)}" aria-label="Open full photo of ${escape(p.name)}"><img src="${escape(fullPhoto)}" alt="${escape(p.name)}'s ${p.cover||p.avatar?'profile photo':'sporting moment'}"></button>`:'<div class="hub-no-photo">YOUR GAME. YOUR STORY.</div>'}<span class="hub-cover-label">${escape(p.state||p.city)} / ${escape(p.country)}</span></div>`;
+  const fullPhotoHTML=photosHidden?hubPrivatePhotos():`<div class="hub-cover">${fullPhoto?`<button type="button" data-hub-photo="${escape(id)}" aria-label="Open full photo of ${escape(p.name)}"><img src="${escape(fullPhoto)}" alt="${escape(p.name)}'s ${p.cover||p.avatar?'profile photo':'sporting moment'}"></button>`:'<div class="hub-no-photo">YOUR GAME. YOUR STORY.</div>'}<span class="hub-cover-label">${escape(p.state||p.city)} / ${escape(p.country)}</span></div>`;
   const back='<a class="back-link" href="#ring">← Back to your feed</a>';
   if(!data)return back+connections+header+tabs+(error?`<div class="arena-error" role="alert">${escape(error)} <button type="button" data-hub-retry="${escape(id)}">Retry profile</button></div>`:'<p role="status" class="hub-empty">Loading this player’s connections and activity…</p>');
   let content;
@@ -164,8 +169,8 @@ playerPage=function(){
   else if(tab==='awards')content=hubRankDetails(p,data);
   else if(tab==='photos'){
     const photos=[...(fullPhoto?[{image:fullPhoto,text:'Profile photo',profile:true}]:[]),...data.posts.filter(post=>post.image),...data.stories];
-    content=`<h2>Photos & sporting moments</h2><div class="hub-gallery">${photos.map((photo,i)=>`<button type="button" data-hub-gallery="${i}" data-hub-player="${escape(id)}"><img src="${escape(photo.image)}" alt="${escape(photo.text||photo.sport||'Photo')}" loading="lazy"><span>${escape(photo.text||photo.sport||'Photo')}</span></button>`).join('')||hubEmpty('No photos yet. Upload a full profile photo or share a story.')}</div>`;
-  }else content=fullPhotoHTML+hubProfileStories(p,data)+`<div class="hub-section-heading"><h2>Moments shared by ${escape(p.name)}</h2></div>`+data.posts.map(post=>postHTML({...post,time:relativeTime(post.time),likes:post.likes-Number(post.liked)})).join('')+(data.posts.length?'':hubEmpty('No posts shared yet.'));
+    content=photosHidden?hubPrivatePhotos():`<h2>Photos & sporting moments</h2><div class="hub-gallery">${photos.map((photo,i)=>`<button type="button" data-hub-gallery="${i}" data-hub-player="${escape(id)}"><img src="${escape(photo.image)}" alt="${escape(photo.text||photo.sport||'Photo')}" loading="lazy"><span>${escape(photo.text||photo.sport||'Photo')}</span></button>`).join('')||hubEmpty('No photos yet. Upload a full profile photo or share a story.')}</div>`;
+  }else content=fullPhotoHTML+(photosHidden?'':hubProfileStories(p,data))+`<div class="hub-section-heading"><h2>Moments shared by ${escape(p.name)}</h2></div>`+data.posts.map(post=>postHTML({...post,time:relativeTime(post.time),likes:post.likes-Number(post.liked)})).join('')+(data.posts.length?'':hubEmpty('No posts shared yet.'));
   return back+connections+header+tabs+`<section class="hub-content">${content}</section>`;
 };
 
@@ -213,7 +218,7 @@ document.addEventListener('click',async event=>{
   const button=event.target.closest('button');if(!button)return;const d=button.dataset;
   if('profileDetectLocation'in d)await detectProfileLocation(button);
   else if(d.hubStory){
-    const data=playerHub.profiles.get(d.hubPlayer);if(!data)return;
+    const data=playerHub.profiles.get(d.hubPlayer);if(!data||arenaPlayer(d.hubPlayer)?.canViewPhotos===false)return;
     const known=new Set(social.stories.map(s=>s.id));social.stories.push(...data.stories.filter(s=>!known.has(s.id)));
     storyOwnerId=d.hubPlayer;showStory(d.hubStory);
   }else if(d.hubMatch)hubMatchDetails(d.hubMatch);
@@ -225,9 +230,9 @@ document.addEventListener('click',async event=>{
     const p=arenaPlayer(d.hubPlayer),data=playerHub.profiles.get(d.hubPlayer);if(!p||!data)return;
     const events=data.awards.filter(a=>a.tier===d.hubAward);
     openModal(d.hubAward+' award details',`${rankBadge(d.hubAward)}<p class="modal-note">${escape(p.name)} has ${p.awards[d.hubAward]} ${escape(d.hubAward)} awards.</p>${events.map(a=>`<button type="button" class="hub-history" data-hub-match="${escape(a.matchId)}">+${a.count} / ${escape(a.organizer)} / Open match ↗</button>`).join('')||'<p class="modal-note">These are seeded historical demo totals. No individual award records available for this tier yet.</p>'}`,'Close',()=>{});
-  }else if(d.hubPhoto){const p=arenaPlayer(d.hubPhoto);if(p)hubFullImage(p.cover||p.avatar||p.image,p.name);}
+  }else if(d.hubPhoto){const p=arenaPlayer(d.hubPhoto),image=p?.cover||p?.avatar||p?.image;if(image&&p.canViewPhotos!==false)hubFullImage(image,p.name);}
   else if(d.hubGallery!==undefined){
-    const data=playerHub.profiles.get(d.hubPlayer),p=arenaPlayer(d.hubPlayer);if(!data||!p)return;
+    const data=playerHub.profiles.get(d.hubPlayer),p=arenaPlayer(d.hubPlayer);if(!data||!p||p.canViewPhotos===false)return;
     const photo=p.cover||p.avatar||p.image,items=[...(photo?[{image:photo,text:'Profile photo'}]:[]),...data.posts.filter(p=>p.image),...data.stories];
     const item=items[Number(d.hubGallery)];if(item)hubFullImage(item.image,item.text||p.name);
   }else if('hubUpload'in d)await uploadHubPhoto();
@@ -265,6 +270,15 @@ render=function(){
   }
 };
 render();
+
+function refreshVisiblePlayer(){
+  if(document.visibilityState==='hidden'||document.body.classList.contains('account-visible')||view!=='player')return;
+  const id=decodeURIComponent(arena.route.split('/')[1]||'');
+  if(id)loadPlayerHub(id,true);
+}
+window.addEventListener('hashchange',refreshVisiblePlayer);
+document.addEventListener('visibilitychange',refreshVisiblePlayer);
+setInterval(refreshVisiblePlayer,30000);
 
 // Preview real squad and match relationships without leaving the feed.
 let playerPreviewTimer;

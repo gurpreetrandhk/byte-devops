@@ -10,6 +10,7 @@ from uuid import uuid4
 
 from flask import Blueprint, jsonify, request
 from auth import current_user_id
+from privacy import can_view_photos, redact_photo_aliases, visible_photo_item
 
 social = Blueprint('social', __name__, url_prefix='/api/social')
 SPORTS = {'Football', 'Cricket', 'Basketball', 'Badminton', 'Tennis', 'Running', 'Esports', 'Swimming', 'Volleyball'}
@@ -105,11 +106,18 @@ def public(post, data):
     from arena import ensure_arena
     player = next((p for p in ensure_arena(data)['players'] if p['id'] == post.get('authorId')), None)
     identity = {key: player[key] for key in ('name', 'initials')} if player else {}
-    return {**{key: value for key, value in post.items() if key not in ('baseSaves', 'likedBy', 'savedBy', 'reactionsBy')}, **identity, 'reactionCounts': {key: list(post.get('reactionsBy', {}).values()).count(key) for key in ('fire', 'mvp', 'clap')}, 'myReaction': post.get('reactionsBy', {}).get(current_user_id()), 'avatar': player.get('avatar', '') if player else '', 'rank': rank(post, data), 'time': post['createdAt']}
+    allowed = can_view_photos(data, post.get('authorId'))
+    result = {**{key: value for key, value in post.items() if key not in ('baseSaves', 'likedBy', 'savedBy', 'reactionsBy')}, **identity, 'reactionCounts': {key: list(post.get('reactionsBy', {}).values()).count(key) for key in ('fire', 'mvp', 'clap')}, 'myReaction': post.get('reactionsBy', {}).get(current_user_id()), 'avatar': player.get('avatar', '') if player and allowed else '', 'rank': rank(post, data), 'time': post['createdAt']}
+    if not allowed:
+        for key in ('image', 'avatar', 'cover'):
+            if key in result:
+                result[key] = ''
+    return redact_photo_aliases(result, data)
 
 
 def active_stories(data):
-    return [story for story in data['stories'] if datetime.fromisoformat(story['expiresAt']) > now()]
+    return [redact_photo_aliases(story, data) for story in data['stories']
+            if datetime.fromisoformat(story['expiresAt']) > now() and visible_photo_item(story, data)]
 
 
 def body():
@@ -181,7 +189,7 @@ def feed():
             tier = {None: 0, 'Silver': 1, 'Gold': 2, 'Diamond': 3, 'Star': 4}[rank(post, data)]
             return (affinity.get(post['sport'], 0) if mode in ('for-you', 'global', 'country', 'state') else 0) + 5 * (post['name'] in preferences['following']) + 12 / (1 + hours / 12) + locality * (2 + tier * 1.5) + min(4, math.log1p(post['likes']) / 2) + discovery_boost(post)
 
-        posts = [post for post in data['posts'] if
+        posts = [post for post in data['posts'] if visible_photo_item(post, data) and
                  (sport in ('All sports', 'All', '') or post['sport'].casefold() == sport.casefold()) and
                  (not query or query in ' '.join([post['text'], post['name'], post['sport'], post['city']]).casefold()) and
                  (mode != 'following' or post['name'] in preferences['following']) and
@@ -264,7 +272,7 @@ def engage(post_id, action):
         return jsonify(error='Comment must contain 1-1000 characters'), 400
     with state() as data:
         post = next((p for p in data['posts'] if p['id'] == post_id), None)
-        if post is None:
+        if post is None or not visible_photo_item(post, data):
             return jsonify(error='Post not found'), 404
         if action == 'like':
             post['liked'] = not post['liked']

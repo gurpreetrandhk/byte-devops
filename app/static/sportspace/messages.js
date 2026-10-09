@@ -365,7 +365,29 @@
     actions.prepend(button);
   }
 
-  window.RingMessages = {open};
+  function invalidateMedia(playerIds) {
+    const ids = new Set(playerIds.filter(id => id !== account.userId));
+    const scrub = player => {
+      if (player && ids.has(player.id)) player.avatar = '';
+    };
+    state.listRevision++;
+    state.playersRevision++;
+    state.selectionRevision++;
+    state.listLoading = state.playersLoading = state.threadLoading = false;
+    state.registeredPlayers.forEach(scrub);
+    state.players.forEach(scrub);
+    state.conversations.forEach(item => scrub(item.player));
+    scrub(state.player);
+    renderLists();
+    renderThread();
+    if (document.body.classList.contains('account-visible')) return;
+    return Promise.allSettled([
+      loadConversations(), loadPlayers(),
+      ...(state.dialog?.open && state.selectedId ? [loadThread(state.selectedId)] : [])
+    ]);
+  }
+
+  window.RingMessages = {open, invalidateMedia};
   if (typeof render === 'function') {
     const previousRender = render;
     render = function () { previousRender(); addProfileAction(); };

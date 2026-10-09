@@ -57,7 +57,7 @@ def install_auth(app):
             return jsonify(error='Organizer access is not enabled for player accounts'), 403
 
 
-def session_response(data, player_id):
+def session_response(data, player_id, **payload):
     token = secrets.token_urlsafe(32)
     sessions = data.setdefault('sessions', {})
     for key in list(sessions):
@@ -67,7 +67,7 @@ def session_response(data, player_id):
     if previous:
         sessions.pop(digest(previous), None)
     sessions[digest(token)] = dict(user_id=player_id, expires=time.time() + LIFETIME)
-    response = jsonify(userId=player_id)
+    response = jsonify(userId=player_id, **payload)
     response.set_cookie(COOKIE, token, max_age=LIFETIME, httponly=True,
                         secure=request.is_secure or current_app.config.get('AUTH_COOKIE_SECURE', False), samesite='Lax', path='/')
     return response
@@ -142,3 +142,58 @@ def logout():
     response = jsonify(ok=True)
     response.delete_cookie(COOKIE, path='/')
     return response
+
+
+@auth.post('/change-password')
+def change_password():
+    from social import raw_state, body
+    from password_reset import cleanup, consume_limits, revoke_account_credentials, RATE_WINDOW
+
+    player_id = current_user_id()
+    if not player_id:
+        return jsonify(error='Sign in to change your password'), 401
+    payload = body()
+    if set(payload) != {'currentPassword', 'password'}:
+        return jsonify(error='Enter your current password and a new password'), 400
+    current_password, password = payload['currentPassword'], payload['password']
+    if not isinstance(current_password, str) or not 1 <= len(current_password) <= 128:
+        return jsonify(error='Enter your current password'), 400
+    if not isinstance(password, str) or not 10 <= len(password) <= 128:
+        return jsonify(error='Use a password between 10 and 128 characters'), 400
+
+    session_digest = digest(request.cookies.get(COOKIE, ''))
+    with raw_state() as data:
+        now = time.time()
+        session = data.get('sessions', {}).get(session_digest)
+        if not session or session['user_id'] != player_id or session['expires'] <= now:
+            return jsonify(error='Sign in to change your password'), 401
+        owned_account = next(((email, account) for email, account in data.get('accounts', {}).items()
+                              if account['player_id'] == player_id), None)
+        if not owned_account:
+            return jsonify(error='Sign in to change your password'), 401
+        cleanup(data, now)
+        limits = [('change-user:' + player_id, 10), ('change-ip:' + (request.remote_addr or ''), 10)]
+        if not consume_limits(data, limits, now):
+            response = jsonify(error='Too many password change attempts. Try again in 15 minutes.')
+            response.headers['Retry-After'] = str(RATE_WINDOW)
+            return response, 429
+        email, account = owned_account
+        previous_hash = account['password_hash']
+
+    # Password hashing is expensive; do it outside the shared state transaction.
+    if not check_password_hash(previous_hash, current_password):
+        return jsonify(error='Your current password is incorrect'), 403
+    password_hash = generate_password_hash(password, method='scrypt')
+    with raw_state() as data:
+        # A reset, sign-out or another password change may have occurred while hashing.
+        session = data.get('sessions', {}).get(session_digest)
+        if not session or session['user_id'] != player_id or session['expires'] <= time.time():
+            return jsonify(error='Sign in to change your password'), 401
+        account = data.get('accounts', {}).get(email)
+        if not account or account['player_id'] != player_id:
+            return jsonify(error='Sign in to change your password'), 401
+        if account['password_hash'] != previous_hash:
+            return jsonify(error='Your current password is incorrect'), 403
+        account['password_hash'] = password_hash
+        revoke_account_credentials(data, email, player_id)
+        return session_response(data, player_id, message='Your password has been updated. Other sessions have been signed out.')

@@ -165,15 +165,16 @@ Check the deployment from a terminal, replacing the example hostname:
 ```bash
 curl --fail --show-error https://YOUR-SERVICE.onrender.com/health
 curl --fail --show-error https://YOUR-SERVICE.onrender.com/health/db
-curl --fail --show-error https://YOUR-SERVICE.onrender.com/users
-curl --fail --show-error https://YOUR-SERVICE.onrender.com/api/social/feed
-curl --fail --show-error https://YOUR-SERVICE.onrender.com/api/arena
+curl --show-error --include https://YOUR-SERVICE.onrender.com/api/friends
 ```
 
-Expected results: healthy process, connected database, a users response, and
-JSON containing the social feed and arena state. Open `/ring` in your browser,
-edit the demo profile or create a test post, then reload to check persistence.
-All visitors use the same demo identity, so those changes are shared.
+Expected results: healthy process, connected database, and a `401` sign-in response
+from `/api/friends` without a session. A `404` means the friend routes are not
+deployed. Open `/ring`, register two separate accounts, send and accept a friend
+request, then reload to check persistence. Test **Edit profile → Who can see your
+photos? → Friends only** with a third account that is not a friend.
+Configure email delivery using [password-reset.md](password-reset.md) to test
+Forgot password with an actual email verification code.
 
 ## 5. Publish future changes
 
@@ -217,14 +218,15 @@ you separately remove them. Do not run Terraform for this free-hosting setup.
 
 - Social posts, player profiles, avatars, awards, and arena state live in Neon.
 - Bookings and tournament registration demos remain in each browser's storage.
-- Visitors share one demo identity; separate authenticated accounts and real
-  booking or payment workflows are not implemented.
+- Visitors register separate authenticated accounts, send and accept friend
+  requests, and restrict their photos to accepted friends. Real booking and
+  payment workflows are not implemented.
 - Avatars are stored as image data in PostgreSQL. Other demo images load from
   external URLs.
 
-Keep this as a public demonstration. The shared identity and demo organizer
-actions need real authentication and authorization before serving real users.
-See [the website README](../app/static/sportspace/README.md) and
+Sample match and award content remains a demonstration. Player accounts cannot
+use the demo organizer actions. See
+[the website README](../app/static/sportspace/README.md) and
 [the current database design](sportspace-database.md).
 
 ## Troubleshooting

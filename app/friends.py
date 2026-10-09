@@ -30,19 +30,19 @@ def relationships(data, user_id, players_by_id):
     return values
 
 
-def public_request(item, player):
-    return {**{key: item[key] for key in REQUEST_FIELDS}, 'player': public_player(player)}
+def public_request(item, player, data):
+    return {**{key: item[key] for key in REQUEST_FIELDS}, 'player': public_player(player, data)}
 
 
 def public_overview(data, user_id):
     connected, incoming, outgoing = [], [], []
     for item, player in relationships(data, user_id, registered_players(data)):
         if item['status'] == 'accepted':
-            connected.append({**public_player(player), 'requestId': item['id']})
+            connected.append({**public_player(player, data), 'requestId': item['id']})
         elif item['recipientId'] == user_id:
-            incoming.append(public_request(item, player))
+            incoming.append(public_request(item, player, data))
         else:
-            outgoing.append(public_request(item, player))
+            outgoing.append(public_request(item, player, data))
     connected.sort(key=lambda player: (player['name'].casefold(), player['id']))
     for values in (incoming, outgoing):
         values.sort(key=lambda item: (item['createdAt'], item['id']), reverse=True)
@@ -67,7 +67,7 @@ def players():
             state = 'friends' if item['status'] == 'accepted' else (
                 'outgoing' if item['senderId'] == user_id else 'incoming')
             existing[player['id']] = dict(friendship=state, requestId=item['id'])
-        values = [{**public_player(player),
+        values = [{**public_player(player, data),
                    **existing.get(player_id, dict(friendship='none', requestId=None))}
                   for player_id, player in players_by_id.items()
                   if player_id != user_id and
@@ -99,7 +99,7 @@ def send_request():
         item = dict(id='friend-request-' + uuid4().hex, senderId=user_id,
                     recipientId=player_id, status='pending', createdAt=now().isoformat())
         data.setdefault('friendRequests', []).append(item)
-        return jsonify(**public_overview(data, user_id), request=public_request(item, player)), 201
+        return jsonify(**public_overview(data, user_id), request=public_request(item, player, data)), 201
 
 
 @friends.post('/requests/<request_id>')

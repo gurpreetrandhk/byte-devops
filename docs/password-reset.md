@@ -1,19 +1,44 @@
 # Password recovery
 
-From the login page, choose **Forgot password?**, enter the account email, and
-choose **Send reset link**. The email opens a form for a new password and its
-confirmation. Passwords must contain 10–128 characters; every character,
-including spaces, is preserved. After resetting, sign in with the new password.
+From the login page, choose **Forgot password? Reset password**, enter the
+account email (including Gmail addresses), and choose **Send verification code**.
+Enter the six-digit code received by email, a new password, and its confirmation,
+then choose **Reset password**. Passwords must contain 10–128 characters; every
+character, including spaces, is preserved. After resetting, sign in with the
+new password. `/ring#forgot-password` also opens recovery directly.
 
-Reset links expire after 30 minutes and can be used once. Only a token digest is
+Codes expire after ten minutes, can be used once, and allow at most five
+verification attempts. Only a scrypt code hash and the digest of an opaque
+challenge identifier are stored. Request responses are identical for registered
+and unregistered addresses. The code and challenge never enter the page URL.
+Successful recovery revokes account sessions, other codes, legacy reset links
+and failed-login limits. Failed email delivery leaves an earlier working code
+usable. Codes require a configured email sender; no link base URL is needed.
+
+Signed-in users can open **Profile → Password & security** to update their
+password after confirming the current password. This keeps the current browser
+signed in with a newly rotated session and signs out the account's other
+devices. The same dialog offers **Send a reset code** when the current password
+is forgotten. **Back to profile** returns without changing the password.
+
+| Method | Endpoint | Input |
+| --- | --- | --- |
+| POST | `/api/auth/request-password-code` | `{ "email": "player@gmail.com" }` |
+| POST | `/api/auth/reset-password-code` | `{ "challengeId": "…", "code": "123456", "password": "…" }` |
+| POST | `/api/auth/change-password` | `{ "currentPassword": "…", "password": "…" }` |
+
+Existing reset links remain supported, expire after 30 minutes, and can be used
+once. Only a token digest is
 stored in the existing PostgreSQL or explicit local SQLite state. Successful
 resets revoke the account's sessions, outstanding reset links, and login lockouts.
 The browser immediately removes the token from the address bar and keeps it in
 memory for the reset request. Account profiles and sports data are retained.
 
 The request response is the same for registered and unregistered email addresses.
-Requests are limited to three per email and twenty per client address in fifteen
-minutes. Reset submissions are limited to ten per address in that period.
+Code and link requests share limits of three per email and twenty per client
+address in fifteen minutes. Reset submissions are limited to ten per address in
+that period. Signed-in password changes allow ten attempts per account and client
+address in fifteen minutes.
 Missing sender configuration shows a service-unavailable message. Delivery errors
 are logged without tokens or credentials; recipient-specific errors keep the
 generic response so they cannot reveal whether an account exists.
@@ -53,7 +78,7 @@ Authorize the Gmail account that will send recovery emails:
 | `GMAIL_CLIENT_SECRET` | Its secret |
 | `GMAIL_REFRESH_TOKEN` | The sender's refresh token |
 | `PASSWORD_RESET_FROM` | The authorized Gmail address or its verified send-as alias |
-| `PASSWORD_RESET_BASE_URL` | `https://byte-ring-demo.onrender.com/static/sportspace/index.html` |
+| `PASSWORD_RESET_BASE_URL` | `https://byte-ring-demo.onrender.com/static/sportspace/index.html` (only required for legacy links) |
 
 Keep credentials in Render's private environment settings. A Gmail login password
 or app password is not an OAuth refresh token. The application requests access

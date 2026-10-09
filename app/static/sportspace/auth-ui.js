@@ -4,7 +4,9 @@ let releaseAccount;
 const accountReady=new Promise(resolve=>releaseAccount=resolve);
 const account={userId:null};
 let accountResetToken=new URLSearchParams(location.hash.slice(1)).get('reset-token')||'';
-if(accountResetToken)history.replaceState(null,'',location.pathname+location.search+'#ring');
+let accountRecoveryChallenge='',accountRecoveryEmail='',accountRecoveryReturnToProfile=false;
+const accountRecoveryRequested=location.hash==='#forgot-password';
+if(accountResetToken||accountRecoveryRequested)history.replaceState(null,'',location.pathname+location.search+'#ring');
 window.fetch=async function(input,options={}){
   const url=typeof input==='string'?input:input.url;
   if(url.startsWith('/api/arena')||url.startsWith('/api/social')||url.startsWith('/api/messages')||url.startsWith('/api/friends'))await accountReady;
@@ -46,14 +48,14 @@ function accountIcon(name){
   return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths[name]||paths.arrow}</svg>`;
 }
 function showAccountForm(mode='login',message='',notice=''){
-  const register=mode==='register',forgot=mode==='forgot',reset=mode==='reset';
-  const path=forgot?'forgot-password':reset?'reset-password':mode;
-  const title=register?'Join the game.':forgot?'Forgot your password?':reset?'Choose a new password.':'Welcome back, player.';
-  const intro=register?'A new squad. A new story. It starts with you.':forgot?'Enter your account email to receive a password reset link.':reset?'Use at least 10 characters, then sign in with your new password.':'Your squad is waiting. Let’s get you back in.';
-  const submitLabel=register?'Create my account':forgot?'Send reset link':reset?'Reset password':'Let’s play';
+  const register=mode==='register',forgot=mode==='forgot',code=mode==='code',reset=mode==='reset'||code;
+  const path=forgot?'request-password-code':code?'reset-password-code':reset?'reset-password':mode;
+  const title=register?'Join the game.':forgot?'Reset your password.':reset?'Choose a new password.':'Welcome back, player.';
+  const intro=register?'A new squad. A new story. It starts with you.':forgot?'Enter your account email. We’ll send a six-digit verification code.':code?'Enter the code from your email and choose a new password. The code expires in 10 minutes.':reset?'Use at least 10 characters, then sign in with your new password.':'Your squad is waiting. Let’s get you back in.';
+  const submitLabel=register?'Create my account':forgot?'Send verification code':reset?'Reset password':'Let’s play';
   document.querySelectorAll('dialog[open]').forEach(dialog=>dialog.close());
   let overlay=document.getElementById('account-screen');
-  const previousEmail=overlay?.querySelector('[name="email"]')?.value||'';
+  const previousEmail=overlay?.querySelector('[name="email"]')?.value||accountRecoveryEmail;
   if(!overlay){overlay=document.createElement('section');overlay.id='account-screen';overlay.setAttribute('aria-label','Player account access');document.body.append(overlay);}
   document.querySelector('.shell').inert=true;document.querySelector('.sidebar').inert=true;document.querySelector('.app-bottom-nav').inert=true;
   document.body.classList.add('account-visible');
@@ -76,7 +78,7 @@ function showAccountForm(mode='login',message='',notice=''){
         </div>
         <div class="account-quest">${accountIcon('flag')}<div><strong>Great games. Even better company.</strong><span>Your next teammate is out there.</span></div></div>
       </div>
-      <form id="account-${mode}-form" class="account-form" method="post" action="/api/auth/${path}" autocomplete="on" aria-labelledby="account-title">
+      <form id="account-${mode}-form" class="account-form" method="post" action="/api/auth/${path}" autocomplete="on" aria-labelledby="account-title" aria-busy="false">
         <div class="account-card-top"><span class="account-access">${accountIcon('gamepad')} PLAYER ACCESS</span><span class="account-card-index" aria-hidden="true">${register?'02':'01'} / DH</span></div>
         <div class="account-auth-tabs" role="group" aria-label="Account options">
           <button type="button" data-account-mode="login" class="${mode==='login'?'active':''}" aria-pressed="${mode==='login'}">Log in</button>
@@ -86,6 +88,7 @@ function showAccountForm(mode='login',message='',notice=''){
         <p class="account-form-intro">${intro}</p>
         ${register?'<label for="account-name">Your name<input id="account-name" name="name" autocomplete="name" placeholder="What should we call you?" maxlength="100" required></label>':''}
         ${reset?'':'<label for="account-email">Email address<input id="account-email" name="email" type="email" autocomplete="username" autocapitalize="none" spellcheck="false" placeholder="you@example.com" maxlength="254" required></label>'}
+        ${code?'<label for="account-code">Verification code<input id="account-code" name="code" type="text" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" minlength="6" maxlength="6" placeholder="6-digit code" required></label>':''}
         ${forgot?'':`<label for="account-password">${reset?'New password':'Password'}</label>
         <div class="account-password-field">
           <input id="account-password" name="password" type="password" autocomplete="${register||reset?'new-password':'current-password'}" placeholder="${register||reset?'Create a password':'Enter your password'}" ${register||reset?'aria-describedby="account-password-help" minlength="10"':''} maxlength="128" required>
@@ -96,11 +99,12 @@ function showAccountForm(mode='login',message='',notice=''){
         ${register?`
           <div class="account-location"><label for="account-city">City<input id="account-city" name="city" autocomplete="address-level2" placeholder="Your city" maxlength="80" required></label><label for="account-state">State / region<input id="account-state" name="state" autocomplete="address-level1" placeholder="Your state" maxlength="80" required></label></div>
           <div class="account-location"><label for="account-country">Country<input id="account-country" name="country" autocomplete="country-name" placeholder="Your country" maxlength="80" required></label><label for="account-sport">Your sport<select id="account-sport" name="sport">${['Football','Cricket','Basketball','Badminton','Tennis','Running','Esports','Swimming','Volleyball'].map(s=>`<option>${s}</option>`).join('')}</select></label></div>`:''}
-        ${mode==='login'||reset?`<button type="button" class="account-forgot">${reset?'Request a new reset link':'Forgot password?'}</button>`:''}
+        ${mode==='login'||reset?`<button type="button" class="account-forgot">${code?'Send a new code':reset?'Request a new reset link':'Forgot password? Reset password'}</button>`:''}
         <p class="account-error" role="alert"></p>
         <p class="account-notice" role="status"></p>
         <button class="primary account-submit" type="submit"><span>${submitLabel}</span>${accountIcon('arrow')}</button>
         <p class="account-switch-line">${forgot||reset?'':register?'Already on the team?':'New to the game?'} <button type="button" class="account-switch">${forgot||reset?'Back to log in':register?'Log in':'Create an account'}</button></p>
+        ${accountRecoveryReturnToProfile&&account.userId?'<button type="button" class="account-return">Back to profile</button>':''}
         <div class="account-card-footer">${accountIcon('shield')}<span>Your profile. Your community. Your next game.</span></div>
       </form>
     </div>
@@ -123,6 +127,8 @@ function showAccountForm(mode='login',message='',notice=''){
   overlay.querySelector('.account-switch').onclick=()=>showAccountForm(mode==='login'?'register':'login');
   const forgotButton=overlay.querySelector('.account-forgot');
   if(forgotButton)forgotButton.onclick=()=>showAccountForm('forgot');
+  const returnButton=overlay.querySelector('.account-return');
+  if(returnButton)returnButton.onclick=()=>location.replace('/ring#player/'+encodeURIComponent(account.userId)+'/moments');
   overlay.querySelectorAll('[data-account-mode]').forEach(button=>button.onclick=()=>{
     if(button.dataset.accountMode!==mode)showAccountForm(button.dataset.accountMode);
   });
@@ -143,19 +149,24 @@ function showAccountForm(mode='login',message='',notice=''){
     form.setAttribute('aria-busy','true');
     form.querySelector('.account-error').textContent='';
     form.querySelector('.account-notice').textContent='';
-    button.querySelector('span').textContent=register?'Creating your account…':forgot?'Sending reset link…':reset?'Resetting your password…':'Signing in…';
+    button.querySelector('span').textContent=register?'Creating your account…':forgot?'Sending verification code…':reset?'Resetting your password…':'Signing in…';
     const payload=Object.fromEntries(new FormData(form));
     if(payload.email)payload.email=payload.email.trim();
     try{
       if(reset){
         if(payload.password!==payload.passwordConfirm)throw new Error('The new passwords do not match.');
-        const result=await accountRequest(path,{token:accountResetToken,password:payload.password});
-        accountResetToken='';account.userId=null;
+        if(code&&!/^[0-9]{6}$/.test(payload.code||''))throw new Error('Enter the six-digit verification code from your email.');
+        const result=await accountRequest(path,code?{challengeId:accountRecoveryChallenge,code:payload.code,password:payload.password}:{token:accountResetToken,password:payload.password});
+        accountResetToken='';accountRecoveryChallenge='';accountRecoveryReturnToProfile=false;account.userId=null;
         showAccountForm('login','',result.message);
         return;
       }
       const result=await accountRequest(path,payload);
-      if(forgot){form.querySelector('.account-notice').textContent=result.message;return;}
+      if(forgot){
+        if(typeof result.challengeId!=='string'||!/^[A-Za-z0-9_-]{43}$/.test(result.challengeId))throw new Error('Could not request a verification code. Please try again.');
+        accountRecoveryChallenge=result.challengeId;accountRecoveryEmail=payload.email;
+        showAccountForm('code','',result.message);return;
+      }
       account.userId=result.userId;
       await rememberAccountPassword(payload);
       form.remove();
@@ -174,6 +185,7 @@ function showAccountForm(mode='login',message='',notice=''){
 }
 (async()=>{
   if(accountResetToken){showAccountForm('reset');return;}
+  if(accountRecoveryRequested){showAccountForm('forgot');return;}
   try{const result=await accountRequest('me');account.userId=result.userId;if(!result.userId){showAccountForm();return;}
     document.body.classList.remove('account-pending');
     document.querySelector('[data-bottom-route="profile"]').href='#player/'+encodeURIComponent(result.userId);

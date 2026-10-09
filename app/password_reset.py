@@ -13,40 +13,47 @@ from urllib.parse import quote, urlencode, urlsplit
 from urllib.request import Request, urlopen
 
 from flask import Blueprint, current_app, jsonify, request
-from werkzeug.security import generate_password_hash
+from werkzeug.security import check_password_hash, generate_password_hash
 
 from auth import COOKIE, digest
 
 
 password_reset = Blueprint('password_reset', __name__, url_prefix='/api/auth')
 TOKEN_LIFETIME = 30 * 60
+CODE_LIFETIME = 10 * 60
+CODE_ATTEMPTS = 5
 RATE_WINDOW = 15 * 60
 MAX_RATE_ENTRIES = 2048
 REQUEST_MESSAGE = 'If an account exists for that email, a password reset link has been sent.'
 UNAVAILABLE_MESSAGE = 'Password reset is temporarily unavailable. Please try again later.'
 INVALID_TOKEN_MESSAGE = 'This reset link is invalid or has expired. Request a new link.'
+CODE_REQUEST_MESSAGE = 'If an account exists for that email, a password reset code has been sent.'
+INVALID_CODE_MESSAGE = 'The code is invalid or has expired. Request a new code.'
+# Unknown and unusable challenges must take the same verification work as real ones.
+DUMMY_CODE_HASH = generate_password_hash(secrets.token_urlsafe(32), method='scrypt')
 
 
 def setting(name, default=None):
     return current_app.config.get(name, os.environ.get(name, default))
 
 
-def mail_settings():
+def mail_settings(require_base_url=True):
     """Only the configured public URL may supply the reset link's origin."""
     base_url = setting('PASSWORD_RESET_BASE_URL')
-    if not isinstance(base_url, str) or not base_url:
-        return None
-    try:
-        parsed = urlsplit(base_url)
-        local_http = parsed.scheme == 'http' and parsed.hostname in ('localhost', '127.0.0.1', '::1')
-        if not parsed.hostname or parsed.username or parsed.password or parsed.query or parsed.fragment:
+    if require_base_url:
+        if not isinstance(base_url, str) or not base_url:
             return None
-        if parsed.scheme != 'https' and not local_http:
+        try:
+            parsed = urlsplit(base_url)
+            local_http = parsed.scheme == 'http' and parsed.hostname in ('localhost', '127.0.0.1', '::1')
+            if not parsed.hostname or parsed.username or parsed.password or parsed.query or parsed.fragment:
+                return None
+            if parsed.scheme != 'https' and not local_http:
+                return None
+            if any(character.isspace() for character in base_url):
+                return None
+        except (ValueError, TypeError):
             return None
-        if any(character.isspace() for character in base_url):
-            return None
-    except (ValueError, TypeError):
-        return None
     gmail = {name: setting(name) for name in ('GMAIL_CLIENT_ID', 'GMAIL_CLIENT_SECRET', 'GMAIL_REFRESH_TOKEN')}
     api_key = setting('RESEND_API_KEY')
     sender = setting('PASSWORD_RESET_FROM') if any(gmail.values()) or api_key else setting('SMTP_FROM')
@@ -83,15 +90,24 @@ def mail_settings():
 
 
 def email_text(settings, token):
+    if settings.get('purpose') == 'code':
+        return ('Your Dhoyo password reset code is:\n\n' + token +
+                '\n\nEnter this code on the password reset screen. '
+                'It expires in 10 minutes and can be used once. '
+                'If you did not request a password reset, you can ignore this email.\n')
     reset_url = settings['base_url'] + '#reset-token=' + quote(token, safe='')
     return ('Use this link to choose a new Dhoyo password:\n\n' + reset_url +
             '\n\nThis link expires in 30 minutes and can be used once. '
             'If you did not request a password reset, you can ignore this email.\n')
 
 
+def email_subject(settings):
+    return 'Your Dhoyo password reset code' if settings.get('purpose') == 'code' else 'Reset your Dhoyo password'
+
+
 def email_message(settings, recipient, token):
     message = EmailMessage()
-    message['Subject'] = 'Reset your Dhoyo password'
+    message['Subject'] = email_subject(settings)
     message['From'] = settings['sender']
     message['To'] = recipient
     message.set_content(email_text(settings, token))
@@ -151,7 +167,7 @@ def deliver_resend_reset(settings, recipient, token):
     if recipient is None:
         return True, False
     payload = {'from': settings['sender'], 'to': [recipient],
-               'subject': 'Reset your Dhoyo password', 'text': email_text(settings, token)}
+               'subject': email_subject(settings), 'text': email_text(settings, token)}
     send_request = Request('https://api.resend.com/emails', data=json.dumps(payload).encode('utf-8'),
                            headers={'Authorization': 'Bearer ' + settings['api_key'], 'Content-Type': 'application/json'},
                            method='POST')
@@ -208,6 +224,10 @@ def cleanup(data, now):
     for key in list(tokens):
         if tokens[key]['expires'] <= now:
             del tokens[key]
+    codes = data.setdefault('passwordResetCodes', {})
+    for key in list(codes):
+        if codes[key]['expires'] <= now:
+            del codes[key]
     limits = data.setdefault('passwordResetRateLimits', {})
     for key in list(limits):
         if limits[key]['until'] <= now:
@@ -241,6 +261,130 @@ def valid_token(data, token_digest, now):
     if not account or account['player_id'] != record['user_id']:
         return None
     return record
+
+
+def valid_code_record(data, challenge_digest, now):
+    record = data.get('passwordResetCodes', {}).get(challenge_digest)
+    if not record or not record.get('active') or record['expires'] <= now:
+        return None
+    account = data.get('accounts', {}).get(record['email'])
+    if not account or account['player_id'] != record['user_id']:
+        return None
+    return record
+
+
+def revoke_account_credentials(data, email, player_id):
+    """Invalidate all recovery proofs and sessions after a password update."""
+    for collection in ('passwordResetTokens', 'passwordResetCodes', 'sessions'):
+        records = data.get(collection, {})
+        for key in list(records):
+            if records[key]['user_id'] == player_id:
+                del records[key]
+    email_digest = digest(email)
+    attempts = data.get('loginAttempts', {})
+    for key in list(attempts):
+        if attempts[key].get('email_digest') == email_digest:
+            del attempts[key]
+    attempts.pop(digest(email + '|' + (request.remote_addr or '')), None)
+
+
+@password_reset.post('/request-password-code')
+def request_password_code():
+    from social import body, raw_state
+    payload = body()
+    if set(payload) != {'email'} or not isinstance(payload['email'], str):
+        return jsonify(error='Enter a valid email address'), 400
+    email = payload['email'].strip().casefold()
+    if (len(email) > 254 or email.count('@') != 1 or not email.split('@')[0]
+            or '.' not in email.rsplit('@', 1)[-1]
+            or any(character.isspace() or ord(character) < 32 or ord(character) == 127 for character in email)):
+        return jsonify(error='Enter a valid email address'), 400
+    settings = mail_settings(require_base_url=False)
+    if settings is None:
+        return jsonify(error=UNAVAILABLE_MESSAGE), 503
+    settings = dict(settings, purpose='code')
+    with raw_state() as data:
+        now = time.time()
+        cleanup(data, now)
+        limits = [('forgot-email:' + email, 3), ('forgot-ip:' + (request.remote_addr or ''), 20)]
+        if not consume_limits(data, limits, now):
+            return rate_limit_response()
+        account = data.get('accounts', {}).get(email)
+        identity = (account['player_id'], account['password_hash']) if account else None
+
+    # Generate and hash even for unknown accounts to keep request behavior uniform.
+    challenge = secrets.token_urlsafe(32)
+    challenge_digest = digest(challenge)
+    code = f'{secrets.randbelow(1_000_000):06d}'
+    code_hash = generate_password_hash(code, method='scrypt')
+    recipient = None
+    with raw_state() as data:
+        account = data.get('accounts', {}).get(email)
+        if identity and account and (account['player_id'], account['password_hash']) == identity:
+            data['passwordResetCodes'][challenge_digest] = dict(
+                email=email, user_id=identity[0], code_hash=code_hash,
+                expires=time.time() + CODE_LIFETIME, attempts=0, active=False)
+            recipient = email
+    # Delivery runs outside state transactions. An unsuccessful send keeps old codes usable.
+    available, sent = deliver_password_reset(settings, recipient, code if recipient else None)
+    if recipient:
+        with raw_state() as data:
+            cleanup(data, time.time())
+            codes = data['passwordResetCodes']
+            pending = codes.get(challenge_digest)
+            account = data.get('accounts', {}).get(email)
+            unchanged = account and (account['player_id'], account['password_hash']) == identity
+            if pending and sent and unchanged:
+                for key in list(codes):
+                    if key != challenge_digest and codes[key]['user_id'] == pending['user_id'] and codes[key]['active']:
+                        del codes[key]
+                pending['active'] = True
+            elif pending:
+                del codes[challenge_digest]
+    if not available:
+        return jsonify(error=UNAVAILABLE_MESSAGE), 503
+    return jsonify(message=CODE_REQUEST_MESSAGE, challengeId=challenge)
+
+
+@password_reset.post('/reset-password-code')
+def reset_password_code():
+    from social import body, raw_state
+    payload = body()
+    if set(payload) != {'challengeId', 'code', 'password'}:
+        return jsonify(error='Enter your reset code and a new password'), 400
+    challenge, code, password = payload['challengeId'], payload['code'], payload['password']
+    if not isinstance(password, str) or not 10 <= len(password) <= 128:
+        return jsonify(error='Use a password between 10 and 128 characters'), 400
+    challenge_digest = digest(challenge) if isinstance(challenge, str) and re.fullmatch(r'[A-Za-z0-9_-]{43}', challenge) else None
+    valid_code_format = isinstance(code, str) and re.fullmatch(r'[0-9]{6}', code)
+    with raw_state() as data:
+        now = time.time()
+        cleanup(data, now)
+        if not consume_limits(data, [('reset-ip:' + (request.remote_addr or ''), 10)], now):
+            return rate_limit_response()
+        record = valid_code_record(data, challenge_digest, now) if challenge_digest else None
+        code_hash, identity = None, None
+        if record and record['attempts'] < CODE_ATTEMPTS:
+            # Reserve before hashing so parallel guesses cannot exceed the shared challenge limit.
+            record['attempts'] += 1
+            code_hash = record['code_hash']
+            identity = (record['email'], record['user_id'])
+    if not challenge_digest or not valid_code_format:
+        return jsonify(error=INVALID_CODE_MESSAGE), 400
+    verified = check_password_hash(code_hash or DUMMY_CODE_HASH, code)
+    if not code_hash or not verified:
+        return jsonify(error=INVALID_CODE_MESSAGE), 400
+    password_hash = generate_password_hash(password, method='scrypt')
+    with raw_state() as data:
+        record = valid_code_record(data, challenge_digest, time.time())
+        if not record or record['code_hash'] != code_hash or (record['email'], record['user_id']) != identity:
+            return jsonify(error=INVALID_CODE_MESSAGE), 400
+        email, player_id = identity
+        data['accounts'][email]['password_hash'] = password_hash
+        revoke_account_credentials(data, email, player_id)
+    response = jsonify(message='Your password has been reset. Sign in with your new password.')
+    response.delete_cookie(COOKIE, path='/')
+    return response
 
 
 @password_reset.post('/forgot-password')
@@ -310,20 +454,7 @@ def reset_password():
             return jsonify(error=INVALID_TOKEN_MESSAGE), 400
         email, player_id = record['email'], record['user_id']
         data['accounts'][email]['password_hash'] = password_hash
-        tokens = data['passwordResetTokens']
-        for key in list(tokens):
-            if tokens[key]['user_id'] == player_id:
-                del tokens[key]
-        sessions = data.get('sessions', {})
-        for key in list(sessions):
-            if sessions[key]['user_id'] == player_id:
-                del sessions[key]
-        email_digest = digest(email)
-        attempts = data.get('loginAttempts', {})
-        for key in list(attempts):
-            if attempts[key].get('email_digest') == email_digest:
-                del attempts[key]
-        attempts.pop(digest(email + '|' + (request.remote_addr or '')), None)
+        revoke_account_credentials(data, email, player_id)
     response = jsonify(message='Your password has been reset. Sign in with your new password.')
     response.delete_cookie(COOKIE, path='/')
     return response

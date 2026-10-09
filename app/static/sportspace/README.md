@@ -62,6 +62,15 @@ Accounts use individual player identities and session cookies. Login, sign-up
 and sign-out are served by `/api/auth`. The explicit demo identity used by older
 domain tests is separate from the normal account flow.
 
+The login screen's **Forgot password? Reset password** action sends a six-digit
+verification code to the registered email, including Gmail addresses. Enter the
+code and a matching new password to recover the account. Codes expire after ten
+minutes, allow five verification attempts, and can be used once. Recovery keeps
+the profile and sports activity and signs out the account's old sessions.
+**Profile → Password & security** lets signed-in users change their password
+with their current password, or request a recovery code. Email delivery requires
+a configured sender; see the [Gmail and other sender setup](../../../docs/password-reset.md).
+
 Booking and tournament activity remains browser-local under `sportspace-v1`.
 There are no payments, shared booking inventory, or real event registrations.
 Sample images load from Unsplash and require internet access. Uploaded raster
@@ -90,6 +99,16 @@ events are illustrative. Lucide icons are bundled locally with their license.
   profile photos also support raster uploads; full photos preserve aspect ratio.
 
 ## Player profiles and connections
+
+**Friends & requests** on Home and in the menu opens incoming requests. Use
+**Find players → Add friend** or a registered player's profile to send one.
+Only accepted requests create friendships; sample players cannot receive them.
+**Edit profile → Who can see your photos? → Friends only** restricts profile
+photos, photo posts and stories to the owner and accepted friends. The setting
+applies to existing photos, persists across sign-ins and defaults to public for
+existing profiles. Text posts and sporting results remain visible. Server checks
+protect the feed, profiles, stories and directory avatars. Friendship changes
+clear loaded photos and reload the allowed content.
 
 The full connection map appears at the top of Home and as the first section of every
 profile, before the player stats, photos and stories. The separate
@@ -204,6 +223,7 @@ Fixtures marked live are sample match states, not a live sports data integration
 
 - `index.html`: page structure and accessible dialog.
 - `auth-ui.js` / `auth.css`: player login, sign-up and session access UI.
+- `account-security.js`: profile password updates and email-code recovery entry.
 - `stickers.js` / `stickers.json`: retryable shared local sticker catalog and login preview.
 - `stickers-ui.js` / `stickers.css`: sticker pack, sharing, copy and image download.
 - `messages.js` / `messages.css`: private sticker inbox and recipient search.

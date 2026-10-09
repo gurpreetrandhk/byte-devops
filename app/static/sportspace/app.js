@@ -23,10 +23,16 @@ const initial = {posts:[
 let state;
 try { const saved=JSON.parse(localStorage.getItem('sportspace-v1')); state=saved && Object.keys(initial).every(k=>Array.isArray(saved[k])) ? saved : structuredClone(initial); }
 catch { state=structuredClone(initial); }
+// Account photos are fetched with current permissions and never restored from
+// the browser's booking/demo storage, including caches from older versions.
+if(state.posts.some(post=>post.authorId)){
+  state.posts=state.posts.filter(post=>!post.authorId);
+  try{localStorage.setItem('sportspace-v1',JSON.stringify(state));}catch{}
+}
 let view='feed', filter='All sports', query='', modalAction=null, toastTimer;
 const escape = (value) => String(value).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const money = (n) => '₹'+n.toLocaleString('en-IN');
-function persist(){try{localStorage.setItem('sportspace-v1',JSON.stringify(state));}catch{toast('Browser storage is unavailable. Changes will last for this session.');}}
+function persist(){try{localStorage.setItem('sportspace-v1',JSON.stringify({...state,posts:state.posts.filter(post=>!post.authorId)}));}catch{toast('Browser storage is unavailable. Changes will last for this session.');}}
 function toast(message){$('#toast').textContent=message;$('#toast').classList.add('visible');clearTimeout(toastTimer);toastTimer=setTimeout(()=>$('#toast').classList.remove('visible'),3500);}
 function matches(item){return (filter==='All sports'||item.sport===filter)&&[item.name,item.text,item.location,item.detail,item.sport].filter(Boolean).join(' ').toLowerCase().includes(query);}
 function postHTML(p){return `<article class="post"><div class="post-heading"><span class="avatar">${escape(p.initials)}</span><div><strong>${escape(p.name)}</strong><small>${escape(p.time)}</small></div><span class="tag">${escape(p.sport)}</span></div><p class="post-text">${escape(p.text)}</p>${p.image?`<img class="post-image" src="${escape(p.image)}" alt="${escape(p.sport)} community highlight">`:''}<div class="post-actions"><button data-like="${p.id}" class="${state.likes.includes(p.id)?'liked':''}" aria-pressed="${state.likes.includes(p.id)}">♡ ${p.likes+Number(state.likes.includes(p.id))} Likes</button><button data-comment="${p.id}">Comments (${p.comments.length})</button><button data-save="${p.id}" aria-pressed="${state.saved.includes(p.id)}">${state.saved.includes(p.id)?'Saved':'Save'}</button></div>${p.comments.map(c=>`<div class="comment"><strong>${escape(c.name)}</strong> ${escape(c.text)}</div>`).join('')}<form class="comment-form" data-post="${p.id}"><input aria-label="Comment on ${escape(p.name)}'s post" placeholder="Add a comment..." required maxlength="500"><button type="submit">Post</button></form></article>`;}

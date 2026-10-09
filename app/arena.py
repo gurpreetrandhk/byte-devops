@@ -4,6 +4,7 @@ from uuid import uuid4
 from flask import Blueprint, jsonify, request
 
 from social import body, state
+from privacy import public_photos, redact_photo_aliases, visible_photo_item
 
 arena = Blueprint('arena', __name__, url_prefix='/api/arena')
 from auth import current_user_id
@@ -94,7 +95,7 @@ def public_arena(data):
     for player in value['players']:
         supporters = player['supporters']
         points = round(len(supporters) / 5, 1)
-        players.append({**{key: val for key, val in player.items() if key != 'supporters'}, 'teamIds': [t['id'] for t in value['teams'] if player['id'] in t['members']], 'rank': player_rank(player), 'communityStars': len(supporters), 'communityPoints': points, 'starScore': round(player['awards']['Star'] + points, 1), 'supported': current_user_id() in supporters})
+        players.append({**{key: val for key, val in public_photos(player, data).items() if key != 'supporters'}, 'teamIds': [t['id'] for t in value['teams'] if player['id'] in t['members']], 'rank': player_rank(player), 'communityStars': len(supporters), 'communityPoints': points, 'starScore': round(player['awards']['Star'] + points, 1), 'supported': current_user_id() in supporters})
         players[-1].update(influenceSources=player_sources[player['id']], discoveryBoost=max((source['boost'] for source in player_sources[player['id']]), default=0))
     communities = [{**community, 'joined': current_user_id() in community['memberIds'],
                     'memberCount': len(community['memberIds'])} for community in value['communities']]
@@ -102,7 +103,10 @@ def public_arena(data):
     rules = dict(tierPoints=INFLUENCE_TIER_POINTS, supportCap=INFLUENCE_SUPPORT_CAP,
                  memberFactor=INFLUENCE_MEMBER_FACTOR, memberCap=INFLUENCE_MEMBER_CAP,
                  supportersPerPoint=5, feeds=['global', 'country', 'state', 'for-you', 'local'])
-    return {**value, 'players': players, 'teams': teams, 'communities': communities, 'currentUserId': current_user_id(), 'awardOrder': AWARD_ORDER, 'influenceRules': rules, 'demo': True}
+    return redact_photo_aliases(dict(players=players, teams=teams, communities=communities,
+                                    matches=value['matches'], awards=value['awards'],
+                                    currentUserId=current_user_id(), awardOrder=AWARD_ORDER,
+                                    influenceRules=rules, demo=True), data)
 
 
 def find(items, item_id):
@@ -142,7 +146,7 @@ def player_details(player_id):
             for friendship, peer in relationships(data, player_id, players_by_id):
                 if friendship['status'] == 'accepted':
                     connections.setdefault(peer['id'], dict(playerId=peer['id'], teamIds=[], matchIds=[]))['friend'] = True
-        posts = sorted((p for p in data['posts'] if p.get('authorId') == player_id), key=lambda p: p['createdAt'], reverse=True)
+        posts = sorted((p for p in data['posts'] if p.get('authorId') == player_id and visible_photo_item(p, data)), key=lambda p: p['createdAt'], reverse=True)
         return jsonify(player=player, registeredPlayer=player_id in players_by_id,
                        teams=teams, matches=matches,
                        connections=[{**c, 'player': find(overview['players'], c['playerId'])} for c in connections.values() if find(overview['players'], c['playerId'])],
@@ -301,7 +305,7 @@ def update_player(player_id):
     if player_id != current_user_id():
         return jsonify(error='You can only edit your own profile'), 403
     payload = body()
-    if not payload or set(payload) - {'name', 'city', 'country', 'state', 'sport', 'bio', 'avatar', 'cover'}:
+    if not payload or set(payload) - {'name', 'city', 'country', 'state', 'sport', 'bio', 'avatar', 'cover', 'photoPrivacy'}:
         return jsonify(error='Provide profile fields only'), 400
     for key, maximum in (('name', 100), ('city', 80), ('country', 80), ('state', 80)):
         if key in payload and not string(payload[key], maximum):
@@ -310,6 +314,8 @@ def update_player(player_id):
         return jsonify(error='Choose a valid sport'), 400
     if 'bio' in payload and (not isinstance(payload['bio'], str) or len(payload['bio']) > 280):
         return jsonify(error='Keep your bio under 280 characters'), 400
+    if 'photoPrivacy' in payload and payload['photoPrivacy'] not in ('public', 'friends'):
+        return jsonify(error='Choose public or friends for photo privacy'), 400
     if 'avatar' in payload:
         try:
             payload['avatar'] = validate_avatar(payload['avatar'])
