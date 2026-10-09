@@ -109,6 +109,14 @@ Profiles include follow/support actions, editable geography and a copy-link butt
 
 ## Private sticker messages
 
+Open **Stickers** in the top bar to browse the pack before choosing a recipient.
+Select a sticker and choose **Send to player** to pick a registered player, then
+confirm with **Send sticker**. **Share sticker** opens the device's share chooser
+when supported, using a transparent PNG image when file sharing is available.
+**Copy link** and **Download** also let users share through other apps. If a
+browser cannot open sharing or access the clipboard, the sticker link remains
+available to copy manually. A failed catalog load has a **Try again** button.
+
 Sign in, open **Messages** in the top bar, then find another registered player by
 name or sport. Select a player and choose a sticker to send it. The pack includes
 Good game, fire, a trophy, a wave, a heart, a football, a star and a fist bump.
@@ -171,7 +179,8 @@ Fixtures marked live are sample match states, not a live sports data integration
 
 - `index.html`: page structure and accessible dialog.
 - `auth-ui.js` / `auth.css`: player login, sign-up and session access UI.
-- `stickers.js` / `stickers.json`: shared local sticker catalog and login preview.
+- `stickers.js` / `stickers.json`: retryable shared local sticker catalog and login preview.
+- `stickers-ui.js` / `stickers.css`: sticker pack, sharing, copy and image download.
 - `messages.js` / `messages.css`: private sticker inbox and recipient search.
 - `assets/stickers/`: original SVG sports stickers.
 - `game.css`: arena artwork, game-inspired community styling and reactions.

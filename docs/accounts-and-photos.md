@@ -13,6 +13,12 @@ Posts, stories and comments use the signed-in author's identity. Other accounts
 cannot edit your profile. Historical demo players remain as sample content and
 cannot be claimed through registration.
 
+Login and sign-up use password-manager autocomplete hints. After successful
+authentication, supported browsers on HTTPS (or localhost) receive a request to
+save the submitted credentials through their own password manager. Browser settings
+and user choice control saving; unsupported browsers use the normal form and
+navigation signals. Declining or failing to save a password still completes sign-in.
+
 Passwords use Werkzeug scrypt hashes. Session cookies are HttpOnly and SameSite=Lax;
 the database stores hashes of opaque session tokens, expires them after seven days,
 and revokes them on logout. JSON mutations require the X-Dhoyo-Request header and
@@ -57,3 +63,5 @@ pytest app/tests covers authentication, account isolation, photo validation and
 existing sports behavior. Legacy domain fixtures explicitly enable AUTH_TEST_DEMO
 only inside their tests. Never enable that setting on a running website.
 Browser smoke checks use a separate SQLite fixture with real registration and cookies.
+Run `node --test app/tests/test_auth_ui.cjs` to check successful credential-saving
+requests, failed authentication, and optional browser support without storing passwords.

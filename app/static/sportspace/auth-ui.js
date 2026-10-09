@@ -15,6 +15,15 @@ async function accountRequest(path,payload){
   const response=await nativeFetch('/api/auth/'+path,{method:payload?'POST':'GET',headers:{'Content-Type':'application/json','X-Dhoyo-Request':'1'},body:payload?JSON.stringify(payload):undefined});
   const value=await response.json();if(!response.ok)throw new Error(value.error||'Could not connect. Try again.');return value;
 }
+async function rememberAccountPassword(payload){
+  if(!window.isSecureContext||typeof window.PasswordCredential!=='function'||typeof navigator.credentials?.store!=='function')return;
+  try{
+    const credential=new PasswordCredential({id:payload.email.trim(),password:payload.password,...(payload.name?{name:payload.name.trim()}:{})});
+    await navigator.credentials.store(credential);
+  }catch{
+    // Browser password saving is optional; declining it must still allow sign-in.
+  }
+}
 function accountIcon(name){
   const paths={
     arrow:'<path d="M5 12h14m-6-6 6 6-6 6"/>',
@@ -51,7 +60,7 @@ function showAccountForm(register=false,message=''){
         </div>
         <div class="account-quest">${accountIcon('flag')}<div><strong>Great games. Even better company.</strong><span>Your next teammate is out there.</span></div></div>
       </div>
-      <form class="account-form" aria-labelledby="account-title">
+      <form id="account-${register?'register':'login'}-form" class="account-form" method="post" action="/api/auth/${register?'register':'login'}" autocomplete="on" aria-labelledby="account-title">
         <div class="account-card-top"><span class="account-access">${accountIcon('gamepad')} PLAYER ACCESS</span><span class="account-card-index" aria-hidden="true">${register?'02':'01'} / DH</span></div>
         <div class="account-auth-tabs" role="group" aria-label="Account options">
           <button type="button" data-account-mode="login" class="${register?'':'active'}" aria-pressed="${!register}">Log in</button>
@@ -60,7 +69,7 @@ function showAccountForm(register=false,message=''){
         <h2 id="account-title">${register?'Join the game.':'Welcome back, player.'}</h2>
         <p class="account-form-intro">${register?'A new squad. A new story. It starts with you.':'Your squad is waiting. Let’s get you back in.'}</p>
         ${register?'<label for="account-name">Your name<input id="account-name" name="name" autocomplete="name" placeholder="What should we call you?" maxlength="100" required></label>':''}
-        <label for="account-email">Email address<input id="account-email" name="email" type="email" autocomplete="email" placeholder="you@example.com" maxlength="254" required></label>
+        <label for="account-email">Email address<input id="account-email" name="email" type="email" autocomplete="username" placeholder="you@example.com" maxlength="254" required></label>
         <label for="account-password">Password</label>
         <div class="account-password-field">
           <input id="account-password" name="password" type="password" autocomplete="${register?'new-password':'current-password'}" placeholder="${register?'Create a password':'Enter your password'}" ${register?'aria-describedby="account-password-help"':''} minlength="10" maxlength="128" required>
@@ -109,7 +118,14 @@ function showAccountForm(register=false,message=''){
     form.setAttribute('aria-busy','true');
     form.querySelector('.account-error').textContent='';
     button.querySelector('span').textContent=register?'Creating your account…':'Signing in…';
-    try{const result=await accountRequest(register?'register':'login',Object.fromEntries(new FormData(form)));account.userId=result.userId;location.hash="ring";location.reload();}
+    const payload=Object.fromEntries(new FormData(form));
+    try{
+      const result=await accountRequest(register?'register':'login',payload);
+      account.userId=result.userId;
+      await rememberAccountPassword(payload);
+      form.remove();
+      location.replace('/ring#ring');
+    }
     catch(error){
       form.querySelector('.account-error').textContent=error.message;
       button.disabled=false;modeButtons.forEach(item=>item.disabled=false);

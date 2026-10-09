@@ -6,7 +6,7 @@
     pending: [], unread: 0, search: '', listLoading: false, playersLoading: false,
     threadLoading: false, listError: '', playersError: '', threadError: '',
     listRevision: 0, playersRevision: 0, selectionRevision: 0, refresh: null,
-    searchTimer: null, lastRefresh: 0, logSignature: '', stickersError: ''
+    searchTimer: null, lastRefresh: 0, logSignature: '', stickersError: '', shareStickerId: null
   };
   const regionMarkup = new WeakMap();
   const escapeHTML = value => String(value ?? '').replace(/[&<>"']/g, char => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
@@ -33,7 +33,7 @@
   function updateRegion(node, markup) {
     if (regionMarkup.get(node) === markup) return;
     const focused = document.activeElement;
-    const attributes = ['data-messages-player', 'data-messages-sticker', 'data-messages-retry', 'data-messages-resend', 'data-messages-back', 'data-messages-thread-title'];
+    const attributes = ['data-messages-player', 'data-messages-sticker', 'data-messages-retry', 'data-messages-resend', 'data-messages-back', 'data-messages-thread-title', 'data-messages-share-send', 'data-messages-clear-sticker'];
     const focusAttribute = node.contains(focused) && attributes.find(name => focused.hasAttribute(name));
     const focusValue = focusAttribute ? focused.getAttribute(focusAttribute) : null;
     node.innerHTML = markup;
@@ -82,6 +82,10 @@
 
   function renderLists() {
     if (!state.dialog) return;
+    const chosen = sticker(state.shareStickerId);
+    const intent = state.dialog.querySelector('[data-messages-share-intent]');
+    intent.hidden = !chosen;
+    updateRegion(intent, chosen ? `<img src="${escapeHTML(chosen.image)}" alt="" width="48" height="48"><span><strong>${escapeHTML(chosen.name)}</strong><small>Choose a player to share this sticker.</small></span><button type="button" data-messages-clear-sticker aria-label="Cancel selected sticker">${icon('close')}</button>` : '');
     const conversations = state.dialog.querySelector('[data-messages-conversations]');
     updateRegion(conversations, errorHTML(state.listError, 'conversations') + (state.listLoading && !state.conversations.length ? '<p class="messages-list-note" role="status">Loading conversations…</p>' : '') + state.conversations.map(item => {
       const player = item.player, selected = state.selectedId === player.id;
@@ -99,7 +103,9 @@
     if (!state.selectedId) { picker.hidden = true; return; }
     picker.hidden = false;
     const items = window.RingStickers?.items || [];
-    updateRegion(picker, `<div class="messages-picker-heading"><strong>Send a little game spirit.</strong><span>Choose a sticker to send</span></div>${state.stickersError ? `<p class="messages-error" role="alert">${escapeHTML(state.stickersError)}</p>` : items.length ? `<div class="messages-sticker-grid">${items.map(item => `<button type="button" class="messages-sticker-send" data-messages-sticker="${escapeHTML(item.id)}" aria-label="Send ${escapeHTML(item.name)} sticker to ${escapeHTML(state.player?.name || 'this player')}"><img src="${escapeHTML(item.image)}" alt="" width="72" height="72"><span>${escapeHTML(item.name)}</span></button>`).join('')}</div>` : '<p class="messages-list-note" role="status">Loading stickers…</p>'}`);
+    const chosen = sticker(state.shareStickerId);
+    const stickersError = items.length ? '' : window.RingStickers?.error || state.stickersError;
+    updateRegion(picker, `${chosen ? `<div class="messages-share-confirm"><span>Share <strong>${escapeHTML(chosen.name)}</strong> with ${escapeHTML(state.player?.name || 'this player')}?</span><button type="button" data-messages-share-send="${escapeHTML(chosen.id)}">Send sticker</button></div>` : ''}<div class="messages-picker-heading"><strong>Send a little game spirit.</strong><span>Choose a sticker to send</span></div>${stickersError ? errorHTML(stickersError, 'stickers') : items.length ? `<div class="messages-sticker-grid">${items.map(item => `<button type="button" class="messages-sticker-send" data-messages-sticker="${escapeHTML(item.id)}" aria-label="Send ${escapeHTML(item.name)} sticker to ${escapeHTML(state.player?.name || 'this player')}"><img src="${escapeHTML(item.image)}" alt="" width="72" height="72"><span>${escapeHTML(item.name)}</span></button>`).join('')}</div>` : '<p class="messages-list-note" role="status">Loading stickers…</p>'}`);
   }
 
   function renderThread(scrollToEnd = false) {
@@ -231,7 +237,12 @@
     }
     item.status = 'sending';
     item.error = '';
+    const confirming = document.activeElement?.hasAttribute('data-messages-share-send');
+    state.shareStickerId = null;
+    renderPicker();
+    renderLists();
     renderThread(true);
+    if (confirming) [...state.dialog.querySelectorAll('[data-messages-sticker]')].find(button => button.dataset.messagesSticker === stickerId)?.focus({preventScroll: true});
     try {
       const value = await request('/conversations/' + encodeURIComponent(item.playerId), {method: 'POST', body: JSON.stringify({stickerId: item.stickerId})});
       mergeMessages(item.playerId, [value.message]);
@@ -263,7 +274,7 @@
     dialog.id = 'messages-dialog';
     dialog.className = 'messages-dialog';
     dialog.setAttribute('aria-labelledby', 'messages-title');
-    dialog.innerHTML = `<header class="messages-heading"><div><span class="messages-kicker">YOUR PEOPLE. YOUR GAME.</span><h2 id="messages-title">A little sticker. A big hello.</h2></div><button type="button" class="messages-close" data-messages-close aria-label="Close messages">${icon('close')}</button></header><div class="messages-layout"><aside class="messages-sidebar" aria-label="Find a conversation"><div class="messages-sidebar-title"><h3>Conversations</h3><span>Just between you</span></div><div data-messages-conversations></div><div class="messages-directory"><label for="messages-player-search">Find a player</label><div class="messages-search">${icon('search')}<input id="messages-player-search" type="search" placeholder="Search player names" autocomplete="off" maxlength="100"></div><div data-messages-players></div></div></aside><section class="messages-thread" aria-label="Private conversation"><header class="messages-thread-heading" data-messages-thread-heading></header><div data-messages-thread-error></div><div class="messages-log" data-messages-log aria-live="polite" aria-relevant="additions"></div><section class="messages-picker" data-messages-picker aria-label="Choose a sticker to send" hidden></section></section></div>`;
+    dialog.innerHTML = `<header class="messages-heading"><div><span class="messages-kicker">YOUR PEOPLE. YOUR GAME.</span><h2 id="messages-title">A little sticker. A big hello.</h2></div><button type="button" class="messages-close" data-messages-close aria-label="Close messages">${icon('close')}</button></header><div class="messages-layout"><aside class="messages-sidebar" aria-label="Find a conversation"><div class="messages-share-intent" data-messages-share-intent hidden></div><div class="messages-sidebar-title"><h3>Conversations</h3><span>Just between you</span></div><div data-messages-conversations></div><div class="messages-directory"><label for="messages-player-search">Find a player</label><div class="messages-search">${icon('search')}<input id="messages-player-search" type="search" placeholder="Search player names" autocomplete="off" maxlength="100"></div><div data-messages-players></div></div></aside><section class="messages-thread" aria-label="Private conversation"><header class="messages-thread-heading" data-messages-thread-heading></header><div data-messages-thread-error></div><div class="messages-log" data-messages-log aria-live="polite" aria-relevant="additions"></div><section class="messages-picker" data-messages-picker aria-label="Choose a sticker to send" hidden></section></section></div>`;
     document.body.append(dialog);
     state.dialog = dialog;
     dialog.addEventListener('click', event => {
@@ -280,12 +291,19 @@
         dialog.querySelector('#messages-player-search').focus();
       } else if (button.dataset.messagesPlayer) selectPlayer(button.dataset.messagesPlayer);
       else if (button.dataset.messagesSticker) sendSticker(button.dataset.messagesSticker);
+      else if (button.dataset.messagesShareSend) sendSticker(button.dataset.messagesShareSend);
+      else if (button.hasAttribute('data-messages-clear-sticker')) {
+        state.shareStickerId = null;
+        renderLists(); renderPicker();
+        state.dialog.querySelector(state.selectedId ? '[data-messages-thread-title]' : '#messages-player-search')?.focus({preventScroll: true});
+      }
       else if (button.dataset.messagesResend) {
         const pending = state.pending.find(item => item.id === button.dataset.messagesResend);
         if (pending) sendSticker(pending.stickerId, pending.id);
       } else if (button.dataset.messagesRetry === 'conversations') loadConversations();
       else if (button.dataset.messagesRetry === 'players') loadPlayers();
       else if (button.dataset.messagesRetry === 'thread' && state.selectedId) loadThread(state.selectedId, true);
+      else if (button.dataset.messagesRetry === 'stickers') loadStickers();
     });
     dialog.querySelector('#messages-player-search').addEventListener('input', event => {
       state.search = event.target.value.trim();
@@ -303,9 +321,18 @@
     renderThread();
   }
 
-  async function open(playerId) {
+  async function open(playerId, stickerId) {
     await accountReady;
     if (!state.dialog) createDialog();
+    if (sticker(stickerId)) {
+      state.shareStickerId = stickerId;
+      // Let the user choose a recipient each time they share from the pack.
+      state.selectedId = null;
+      state.player = null;
+      state.selectionRevision++;
+      state.threadLoading = false;
+      renderLists(); renderThread();
+    }
     if (!state.dialog.open) {
       state.dialog.showModal();
       state.trigger?.setAttribute('aria-expanded', 'true');
@@ -313,6 +340,13 @@
     if (playerId) await selectPlayer(playerId);
     else if (state.selectedId) await loadThread(state.selectedId, true);
     await Promise.all([loadConversations(), loadPlayers()]);
+  }
+
+  async function loadStickers() {
+    const items = await window.RingStickers.load();
+    state.stickersError = items.length ? '' : window.RingStickers.error || 'Stickers could not load. Please try again.';
+    state.logSignature = '';
+    renderPicker(); renderThread(); renderLists();
   }
 
   function addProfileAction() {
@@ -351,14 +385,7 @@
     state.trigger = button;
     loadConversations();
     loadPlayers();
-    Promise.resolve(window.RingStickers?.ready).then(() => {
-      if (!window.RingStickers?.items.length) state.stickersError = 'Stickers could not load. Reload the page to try again.';
-      state.logSignature = '';
-      renderPicker(); renderThread(); renderLists();
-    }).catch(() => {
-      state.stickersError = 'Stickers could not load. Reload the page to try again.';
-      renderPicker();
-    });
+    loadStickers();
     setInterval(() => {
       if (document.visibilityState === 'hidden') return;
       if (Date.now() - state.lastRefresh >= (state.dialog.open ? 8000 : 30000)) refreshInbox();

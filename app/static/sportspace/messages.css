@@ -18,6 +18,16 @@
 .messages-sidebar-title{padding:0 10px 15px}
 .messages-sidebar-title h3{font-size:13px;margin:0 0 5px}
 .messages-sidebar-title>span{font-size:10px;color:var(--messages-muted)}
+.messages-share-intent{display:flex;align-items:center;gap:8px;margin:0 0 18px;padding:10px;border:1px solid #647c39;border-radius:8px;background:#233430}
+.messages-share-intent[hidden]{display:none}
+.messages-share-intent>img{flex-shrink:0;object-fit:contain}
+.messages-share-intent>span{flex:1;min-width:0}
+.messages-share-intent strong{display:block;font-size:11px}
+.messages-share-intent small{display:block;font-size:10px;line-height:1.6;margin-top:4px;color:var(--messages-muted)}
+.messages-share-intent button{padding:6px;flex-shrink:0}
+.messages-share-intent svg{width:15px;height:15px}
+.messages-share-confirm{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:14px;font-size:11px;line-height:1.6}
+.messages-share-confirm button{flex-shrink:0;padding:10px;border-radius:6px;background:#d4fa62;color:#121c18;font-size:11px;font-weight:750}
 .messages-player{display:flex;width:100%;align-items:center;gap:10px;padding:11px 10px;text-align:left;border:1px solid transparent;border-radius:8px;margin-bottom:4px;min-height:60px}
 .messages-player:hover{background:#1c2e40}
 .messages-player.selected{background:#253b38;border-color:#526b3f}
