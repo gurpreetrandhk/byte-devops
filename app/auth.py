@@ -23,6 +23,8 @@ def digest(token):
 
 def install_auth(app):
     app.register_blueprint(auth)
+    from password_reset import password_reset
+    app.register_blueprint(password_reset)
 
     @app.before_request
     def authenticate():
@@ -121,6 +123,7 @@ def login():
             if attempts[old]['until'] < time.time():
                 del attempts[old]
         attempt = attempts.setdefault(key, dict(count=0, until=time.time() + 900))
+        attempt['email_digest'] = digest(email.strip().casefold())
         if attempt['count'] >= 10:
             return jsonify(error='Too many attempts. Try again in 15 minutes.'), 429
         account = data.get('accounts', {}).get(email.strip().casefold())

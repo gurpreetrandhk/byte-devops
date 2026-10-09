@@ -3,17 +3,27 @@ const nativeFetch=window.fetch.bind(window);
 let releaseAccount;
 const accountReady=new Promise(resolve=>releaseAccount=resolve);
 const account={userId:null};
+let accountResetToken=new URLSearchParams(location.hash.slice(1)).get('reset-token')||'';
+if(accountResetToken)history.replaceState(null,'',location.pathname+location.search+'#ring');
 window.fetch=async function(input,options={}){
   const url=typeof input==='string'?input:input.url;
   if(url.startsWith('/api/arena')||url.startsWith('/api/social')||url.startsWith('/api/messages'))await accountReady;
   if(url.startsWith('/api/'))options={...options,headers:{...options.headers,'X-Dhoyo-Request':'1'}};
   const result=await nativeFetch(input,options);
-  if(result.status===401&&!url.startsWith('/api/auth/'))showAccountForm(false,'Your session has expired. Sign in again.');
+  if(result.status===401&&!url.startsWith('/api/auth/')&&!document.body.classList.contains('account-visible')){
+    account.userId=null;
+    showAccountForm('login','Your session has expired. Sign in again.');
+  }
   return result;
 };
 async function accountRequest(path,payload){
-  const response=await nativeFetch('/api/auth/'+path,{method:payload?'POST':'GET',headers:{'Content-Type':'application/json','X-Dhoyo-Request':'1'},body:payload?JSON.stringify(payload):undefined});
-  const value=await response.json();if(!response.ok)throw new Error(value.error||'Could not connect. Try again.');return value;
+  let response;
+  try{response=await nativeFetch('/api/auth/'+path,{method:payload?'POST':'GET',headers:{'Content-Type':'application/json','X-Dhoyo-Request':'1'},body:payload?JSON.stringify(payload):undefined});}
+  catch{throw new Error('Could not reach the account service. Check your connection and try again.');}
+  const value=await response.json().catch(()=>null);
+  if(!response.ok)throw new Error(value?.error||'The account service is temporarily unavailable. Try again.');
+  if(!value||typeof value!=='object')throw new Error('The account service returned an unexpected response. Try again.');
+  return value;
 }
 async function rememberAccountPassword(payload){
   if(!window.isSecureContext||typeof window.PasswordCredential!=='function'||typeof navigator.credentials?.store!=='function')return;
@@ -35,9 +45,15 @@ function accountIcon(name){
   };
   return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths[name]||paths.arrow}</svg>`;
 }
-function showAccountForm(register=false,message=''){
+function showAccountForm(mode='login',message='',notice=''){
+  const register=mode==='register',forgot=mode==='forgot',reset=mode==='reset';
+  const path=forgot?'forgot-password':reset?'reset-password':mode;
+  const title=register?'Join the game.':forgot?'Forgot your password?':reset?'Choose a new password.':'Welcome back, player.';
+  const intro=register?'A new squad. A new story. It starts with you.':forgot?'Enter your account email to receive a password reset link.':reset?'Use at least 10 characters, then sign in with your new password.':'Your squad is waiting. Let’s get you back in.';
+  const submitLabel=register?'Create my account':forgot?'Send reset link':reset?'Reset password':'Let’s play';
   document.querySelectorAll('dialog[open]').forEach(dialog=>dialog.close());
   let overlay=document.getElementById('account-screen');
+  const previousEmail=overlay?.querySelector('[name="email"]')?.value||'';
   if(!overlay){overlay=document.createElement('section');overlay.id='account-screen';overlay.setAttribute('aria-label','Player account access');document.body.append(overlay);}
   document.querySelector('.shell').inert=true;document.querySelector('.sidebar').inert=true;document.querySelector('.app-bottom-nav').inert=true;
   document.body.classList.add('account-visible');
@@ -60,33 +76,40 @@ function showAccountForm(register=false,message=''){
         </div>
         <div class="account-quest">${accountIcon('flag')}<div><strong>Great games. Even better company.</strong><span>Your next teammate is out there.</span></div></div>
       </div>
-      <form id="account-${register?'register':'login'}-form" class="account-form" method="post" action="/api/auth/${register?'register':'login'}" autocomplete="on" aria-labelledby="account-title">
+      <form id="account-${mode}-form" class="account-form" method="post" action="/api/auth/${path}" autocomplete="on" aria-labelledby="account-title">
         <div class="account-card-top"><span class="account-access">${accountIcon('gamepad')} PLAYER ACCESS</span><span class="account-card-index" aria-hidden="true">${register?'02':'01'} / DH</span></div>
         <div class="account-auth-tabs" role="group" aria-label="Account options">
-          <button type="button" data-account-mode="login" class="${register?'':'active'}" aria-pressed="${!register}">Log in</button>
+          <button type="button" data-account-mode="login" class="${mode==='login'?'active':''}" aria-pressed="${mode==='login'}">Log in</button>
           <button type="button" data-account-mode="register" class="${register?'active':''}" aria-pressed="${register}">Sign up</button>
         </div>
-        <h2 id="account-title">${register?'Join the game.':'Welcome back, player.'}</h2>
-        <p class="account-form-intro">${register?'A new squad. A new story. It starts with you.':'Your squad is waiting. Let’s get you back in.'}</p>
+        <h2 id="account-title">${title}</h2>
+        <p class="account-form-intro">${intro}</p>
         ${register?'<label for="account-name">Your name<input id="account-name" name="name" autocomplete="name" placeholder="What should we call you?" maxlength="100" required></label>':''}
-        <label for="account-email">Email address<input id="account-email" name="email" type="email" autocomplete="username" placeholder="you@example.com" maxlength="254" required></label>
-        <label for="account-password">Password</label>
+        ${reset?'':'<label for="account-email">Email address<input id="account-email" name="email" type="email" autocomplete="username" autocapitalize="none" spellcheck="false" placeholder="you@example.com" maxlength="254" required></label>'}
+        ${forgot?'':`<label for="account-password">${reset?'New password':'Password'}</label>
         <div class="account-password-field">
-          <input id="account-password" name="password" type="password" autocomplete="${register?'new-password':'current-password'}" placeholder="${register?'Create a password':'Enter your password'}" ${register?'aria-describedby="account-password-help"':''} minlength="10" maxlength="128" required>
+          <input id="account-password" name="password" type="password" autocomplete="${register||reset?'new-password':'current-password'}" placeholder="${register||reset?'Create a password':'Enter your password'}" ${register||reset?'aria-describedby="account-password-help" minlength="10"':''} maxlength="128" required>
           <button type="button" class="account-password-toggle" aria-label="Show password" aria-controls="account-password" aria-pressed="false">${accountIcon('eye')}</button>
-        </div>
-        ${register?`<small id="account-password-help" class="account-password-help">Use at least 10 characters.</small>
+        </div>`}
+        ${register||reset?'<small id="account-password-help" class="account-password-help">Use at least 10 characters.</small>':''}
+        ${reset?'<label for="account-password-confirm">Confirm new password<input id="account-password-confirm" name="passwordConfirm" type="password" autocomplete="new-password" minlength="10" maxlength="128" required></label>':''}
+        ${register?`
           <div class="account-location"><label for="account-city">City<input id="account-city" name="city" autocomplete="address-level2" placeholder="Your city" maxlength="80" required></label><label for="account-state">State / region<input id="account-state" name="state" autocomplete="address-level1" placeholder="Your state" maxlength="80" required></label></div>
           <div class="account-location"><label for="account-country">Country<input id="account-country" name="country" autocomplete="country-name" placeholder="Your country" maxlength="80" required></label><label for="account-sport">Your sport<select id="account-sport" name="sport">${['Football','Cricket','Basketball','Badminton','Tennis','Running','Esports','Swimming','Volleyball'].map(s=>`<option>${s}</option>`).join('')}</select></label></div>`:''}
+        ${mode==='login'||reset?`<button type="button" class="account-forgot">${reset?'Request a new reset link':'Forgot password?'}</button>`:''}
         <p class="account-error" role="alert"></p>
-        <button class="primary account-submit" type="submit"><span>${register?'Create my account':'Let’s play'}</span>${accountIcon('arrow')}</button>
-        <p class="account-switch-line">${register?'Already on the team?':'New to the game?'} <button type="button" class="account-switch">${register?'Log in':'Create an account'}</button></p>
+        <p class="account-notice" role="status"></p>
+        <button class="primary account-submit" type="submit"><span>${submitLabel}</span>${accountIcon('arrow')}</button>
+        <p class="account-switch-line">${forgot||reset?'':register?'Already on the team?':'New to the game?'} <button type="button" class="account-switch">${forgot||reset?'Back to log in':register?'Log in':'Create an account'}</button></p>
         <div class="account-card-footer">${accountIcon('shield')}<span>Your profile. Your community. Your next game.</span></div>
       </form>
     </div>
     <footer class="account-footer"><span>BUILT FOR THE LOVE OF THE GAME</span><span>FIND YOUR SQUAD. MAKE YOUR MARK.${accountIcon('arrow')}</span></footer>`;
   document.body.classList.remove('account-pending');
   overlay.querySelector('.account-error').textContent=message;
+  overlay.querySelector('.account-notice').textContent=notice;
+  const email=overlay.querySelector('[name="email"]');
+  if(email)email.value=previousEmail;
   const stickerStrip=overlay.querySelector('.account-sticker-strip');
   RingStickers.ready.then(items=>{
     if(!stickerStrip.isConnected)return;
@@ -97,13 +120,15 @@ function showAccountForm(register=false,message=''){
     }
     if(!items.length)stickerStrip.closest('.account-stickers').hidden=true;
   });
-  overlay.querySelector('.account-switch').onclick=()=>showAccountForm(!register);
+  overlay.querySelector('.account-switch').onclick=()=>showAccountForm(mode==='login'?'register':'login');
+  const forgotButton=overlay.querySelector('.account-forgot');
+  if(forgotButton)forgotButton.onclick=()=>showAccountForm('forgot');
   overlay.querySelectorAll('[data-account-mode]').forEach(button=>button.onclick=()=>{
-    const nextRegister=button.dataset.accountMode==='register';
-    if(nextRegister!==register)showAccountForm(nextRegister);
+    if(button.dataset.accountMode!==mode)showAccountForm(button.dataset.accountMode);
   });
   const password=overlay.querySelector('[name="password"]');
-  overlay.querySelector('.account-password-toggle').onclick=event=>{
+  const passwordToggle=overlay.querySelector('.account-password-toggle');
+  if(passwordToggle)passwordToggle.onclick=event=>{
     const button=event.currentTarget,visible=password.type==='password';
     password.type=visible?'text':'password';
     button.setAttribute('aria-label',visible?'Hide password':'Show password');
@@ -113,14 +138,24 @@ function showAccountForm(register=false,message=''){
   overlay.querySelector('form').onsubmit=async event=>{
     event.preventDefault();
     const form=event.target,button=form.querySelector('[type=submit]');
-    const modeButtons=form.querySelectorAll('[data-account-mode],.account-switch');
+    const modeButtons=form.querySelectorAll('[data-account-mode],.account-switch,.account-forgot');
     button.disabled=true;modeButtons.forEach(item=>item.disabled=true);
     form.setAttribute('aria-busy','true');
     form.querySelector('.account-error').textContent='';
-    button.querySelector('span').textContent=register?'Creating your account…':'Signing in…';
+    form.querySelector('.account-notice').textContent='';
+    button.querySelector('span').textContent=register?'Creating your account…':forgot?'Sending reset link…':reset?'Resetting your password…':'Signing in…';
     const payload=Object.fromEntries(new FormData(form));
+    if(payload.email)payload.email=payload.email.trim();
     try{
-      const result=await accountRequest(register?'register':'login',payload);
+      if(reset){
+        if(payload.password!==payload.passwordConfirm)throw new Error('The new passwords do not match.');
+        const result=await accountRequest(path,{token:accountResetToken,password:payload.password});
+        accountResetToken='';account.userId=null;
+        showAccountForm('login','',result.message);
+        return;
+      }
+      const result=await accountRequest(path,payload);
+      if(forgot){form.querySelector('.account-notice').textContent=result.message;return;}
       account.userId=result.userId;
       await rememberAccountPassword(payload);
       form.remove();
@@ -128,18 +163,21 @@ function showAccountForm(register=false,message=''){
     }
     catch(error){
       form.querySelector('.account-error').textContent=error.message;
+    }
+    finally{
       button.disabled=false;modeButtons.forEach(item=>item.disabled=false);
       form.setAttribute('aria-busy','false');
-      button.querySelector('span').textContent=register?'Create my account':'Let’s play';
+      button.querySelector('span').textContent=submitLabel;
     }
   };
   if(window.matchMedia('(min-width: 761px)').matches)overlay.querySelector('input').focus({preventScroll:true});
 }
 (async()=>{
+  if(accountResetToken){showAccountForm('reset');return;}
   try{const result=await accountRequest('me');account.userId=result.userId;if(!result.userId){showAccountForm();return;}
     document.body.classList.remove('account-pending');
     document.querySelector('[data-bottom-route="profile"]').href='#player/'+encodeURIComponent(result.userId);
     const logout=document.createElement('button');logout.className='account-logout';logout.textContent='Sign out';logout.onclick=async()=>{try{await accountRequest('logout',{});location.reload();}catch(error){logout.textContent=error.message;}};document.querySelector('.topbar').append(logout);
     releaseAccount();
-  }catch(error){showAccountForm(false,'Could not reach the server. Check the connection and try signing in.');}
+  }catch(error){showAccountForm('login','Could not reach the server. Check the connection and try signing in.');}
 })();

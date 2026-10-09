@@ -24,8 +24,11 @@ the database stores hashes of opaque session tokens, expires them after seven da
 and revokes them on logout. JSON mutations require the X-Dhoyo-Request header and
 reject cross-origin requests. The old demo organizer header grants no permissions.
 For an HTTPS deployment, set AUTH_COOKIE_SECURE=1 (especially behind a TLS proxy).
-Registration currently does not verify email ownership; password-reset email and
-organizer administration are not implemented.
+Registration currently does not verify email ownership. **Forgot password?** sends
+a single-use email link that expires after 30 minutes. Resetting the password
+revokes existing sessions and clears login lockouts, then returns the player to
+the login form. Configure the sender using the [password recovery setup](password-reset.md).
+Organizer administration is not implemented.
 
 The existing PostgreSQL sportspace_state JSONB row stores accounts, sessions,
 userPreferences and sports content. No migration deletes or replaces the existing
@@ -64,4 +67,6 @@ existing sports behavior. Legacy domain fixtures explicitly enable AUTH_TEST_DEM
 only inside their tests. Never enable that setting on a running website.
 Browser smoke checks use a separate SQLite fixture with real registration and cookies.
 Run `node --test app/tests/test_auth_ui.cjs` to check successful credential-saving
-requests, failed authentication, and optional browser support without storing passwords.
+requests, recovery forms, failed authentication, and optional browser support
+without storing passwords. Backend recovery tests mock mail delivery; they do not
+send real emails.

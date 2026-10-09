@@ -228,10 +228,14 @@ body.account-visible { overflow: hidden; }
 .account-password-toggle { position: absolute; inset: 0 4px 0 auto; display: grid; place-items: center; width: 40px; padding: 0; border-radius: 5px; color: #96aab5; }
 .account-password-toggle svg { width: 19px; height: 19px; }
 .account-password-toggle:hover { color: var(--account-lime); background: #d4fa620a; }
+#account-screen .account-forgot { display: block; margin: 13px 0 0 auto; padding: 4px 0; color: var(--account-lime); font-size: 11px; }
+.account-forgot:hover { text-decoration: underline; text-underline-offset: 3px; }
 #account-screen .account-form .account-password-help { margin-top: 7px; color: #9dafb9; font-size: 10px; }
 #account-screen .account-location { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 12px; }
 #account-screen .account-form .account-error { margin: 16px 0 0; color: #ffc3b8; font-size: 12px; line-height: 1.6; }
 #account-screen .account-error:empty { display: none; }
+#account-screen .account-form .account-notice { margin: 16px 0 0; color: var(--account-lime); font-size: 12px; line-height: 1.6; }
+#account-screen .account-notice:empty { display: none; }
 #account-screen .account-form .account-submit { display: flex; align-items: center; justify-content: space-between; width: 100%; min-height: 49px; margin: 24px 0 0; padding: 13px 16px; border: 1px solid #d4fa62; border-radius: 7px; background: var(--account-lime); color: #14200c; font-size: 13px; font-weight: 750; box-shadow: 0 4px 18px #d4fa621a; }
 .account-submit svg { width: 20px; height: 20px; transition: transform .18s; }
 #account-screen .account-submit:hover { background: #e3ff95; border-color: #e3ff95; box-shadow: 0 4px 24px #d4fa6233; }
