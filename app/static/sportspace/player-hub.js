@@ -244,6 +244,10 @@ document.addEventListener('click',async event=>{
 
 render=function(){
   hubBaseRender();
+  const search=$('#search');
+  search.disabled=false;
+  search.placeholder='Search players, sports and places';
+  search.setAttribute('aria-label','Search players, sports and places');
   const me=arenaPlayer(arena.data?.currentUserId);
   if(me){
     document.querySelector('.sidebar-bottom strong').textContent=me.name;

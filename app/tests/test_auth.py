@@ -29,7 +29,7 @@ def test_accounts_posts_and_interactions_are_isolated(clients):
     assert aid!=bid
     assert a.get('/api/arena').json['currentUserId']==aid
     assert b.patch('/api/arena/players/'+aid,json={'name':'Imposter'},headers=HEADERS).status_code==403
-    assert a.patch('/api/arena/players/'+aid,json={'name':'Alex Updated'},headers=HEADERS).status_code==200
+    assert a.patch('/api/arena/players/'+aid,json={'name':'Alex Updated','photoPrivacy':'public'},headers=HEADERS).status_code==200
     from PIL import Image
     image=BytesIO();Image.new('RGB',(20,10),'green').save(image,format='PNG')
     photo='data:image/png;base64,'+base64.b64encode(image.getvalue()).decode()

@@ -100,13 +100,15 @@ events are illustrative. Lucide icons are bundled locally with their license.
 
 ## Player profiles and connections
 
-**Friends & requests** on Home and in the menu opens incoming requests. Use
-**Find players → Add friend** or a registered player's profile to send one.
+**Manage friends** on your own profile opens incoming requests. Open a player
+from a public post or the main search, then choose
+**Add friend** on their profile to send one.
 Only accepted requests create friendships; sample players cannot receive them.
 **Edit profile → Who can see your photos? → Friends only** restricts profile
 photos, photo posts and stories to the owner and accepted friends. The setting
-applies to existing photos, persists across sign-ins and defaults to public for
-existing profiles. Text posts and sporting results remain visible. Server checks
+applies to existing photos and persists across sign-ins. Registered accounts
+default to **Friends only** unless they explicitly choose **Everyone on Ring**.
+Sample profiles remain public. Text posts and sporting results remain visible. Server checks
 protect the feed, profiles, stories and directory avatars. Friendship changes
 clear loaded photos and reload the allowed content.
 
@@ -128,9 +130,12 @@ Profiles include follow/support actions, editable geography and a copy-link butt
 
 ## Friends and friend requests
 
-Open **Friends** in the top bar or **Find players** in Connections to search other
-registered players by name or sport. Choose **Add friend** to send a request.
-The recipient's Friends badge shows pending incoming requests. In **Requests**,
+Open a player from a public post or use the main search on any screen to find
+other registered players by name or sport. Choose **Add friend** on their profile
+to send a request. The top bar and feed have no friend-request controls.
+Use **Manage friends** on your own profile to open the dialog's **Requests** and
+**Friends** sections. The profile button shows pending incoming requests.
+There is no global Friends button. In **Requests**,
 recipients can accept or decline, and senders can cancel their pending requests.
 The **Friends** tab lists accepted friends, links to their profiles, and allows
 either player to remove the friendship. Registered player profiles also have

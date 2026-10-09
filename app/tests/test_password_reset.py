@@ -249,16 +249,19 @@ REAL_DELIVER = password_reset.deliver_password_reset
 def test_smtp_connection_and_recipient_failures_return_distinct_internal_results(reset_clients, monkeypatch, caplog):
     _, _, _ = reset_clients
     smtp = Mock()
-    monkeypatch.setattr(smtplib, 'SMTP', Mock(side_effect=smtplib.SMTPConnectError(421, 'offline')))
+    monkeypatch.setattr(smtplib, 'SMTP', Mock(side_effect=smtplib.SMTPConnectError(421, 'private-smtp-password')))
     with app.app_context():
         settings = password_reset.mail_settings()
         assert REAL_DELIVER(settings, 'alex@example.com', 'private-token') == (False, False)
         assert REAL_DELIVER(settings, None, None) == (False, False)
         monkeypatch.setattr(smtplib, 'SMTP', Mock(return_value=smtp))
-        smtp.send_message.side_effect = smtplib.SMTPRecipientsRefused({'alex@example.com': (550, 'refused')})
+        smtp.send_message.side_effect = smtplib.SMTPRecipientsRefused({'alex@example.com': (550, 'private-code-001234')})
         assert REAL_DELIVER(settings, 'alex@example.com', 'private-token') == (True, False)
         assert REAL_DELIVER(settings, None, None) == (True, False)
-    assert 'private-token' not in caplog.text
+    assert 'provider=smtp stage=connect smtp_error=SMTPConnectError' in caplog.text
+    assert 'provider=smtp stage=send smtp_error=SMTPRecipientsRefused' in caplog.text
+    for private_value in ('alex@example.com', 'private-token', 'private-smtp-password', 'private-code-001234'):
+        assert private_value not in caplog.text
 
 
 def test_resend_is_preferred_and_posts_to_fixed_https_endpoint(reset_clients, monkeypatch, caplog):
@@ -308,7 +311,11 @@ def test_resend_failures_are_generic_without_logging_secrets(reset_clients, monk
         settings = password_reset.mail_settings()
         assert REAL_DELIVER(settings, 'alex@example.com', 'private-token') == (True, False)
         assert REAL_DELIVER(settings, None, None) == (True, False)
+    assert 'provider=resend stage=send' in caplog.text
+    if failure == 'http':
+        assert 'http_status=401' in caplog.text
     assert 'private-token' not in caplog.text and 'private-api-key' not in caplog.text
+    assert 'alex@example.com' not in caplog.text and 'accounts@dhoyo.example' not in caplog.text
 
 
 def gmail_settings(monkeypatch):
@@ -386,8 +393,12 @@ def test_gmail_refresh_failures_are_uniform_and_keep_secrets_out_of_logs(reset_c
     assert open_request.call_count == 2
     with raw_state() as data:
         assert not data['passwordResetTokens']
+    assert 'provider=gmail stage=oauth' in caplog.text
+    if failure == 'http':
+        assert 'http_status=401' in caplog.text
     for secret in ('private-refresh-token', 'private-client-secret', 'private-token'):
         assert secret not in caplog.text
+    assert 'alex@example.com' not in caplog.text and 'sender@gmail.com' not in caplog.text
 
 
 def test_gmail_send_failure_is_generic_and_preserves_previous_reset_link(reset_clients, monkeypatch, caplog):
@@ -408,4 +419,144 @@ def test_gmail_send_failure_is_generic_and_preserves_previous_reset_link(reset_c
     assert known.json == unknown.json
     with raw_state() as data:
         assert set(data['passwordResetTokens']) == {digest(old_token)}
+    assert 'provider=gmail stage=send http_status=403' in caplog.text
     assert 'private-token' not in caplog.text and 'private-access-token' not in caplog.text
+    assert 'alex@example.com' not in caplog.text and 'sender@gmail.com' not in caplog.text
+
+
+@pytest.mark.parametrize('route', ['forgot-password', 'request-password-code'])
+@pytest.mark.parametrize('provider', ['gmail', 'resend', 'smtp'])
+def test_invalid_sender_configuration_logs_only_setting_names_and_stage(reset_clients, monkeypatch, caplog, route, provider):
+    owner, visitor, deliveries = reset_clients
+    if provider == 'gmail':
+        # An incomplete configuration still identifies the selected provider.
+        monkeypatch.setitem(app.config, 'GMAIL_CLIENT_ID', 'private-client-id')
+        invalid_fields = 'PASSWORD_RESET_FROM,GMAIL_CLIENT_SECRET,GMAIL_REFRESH_TOKEN'
+    elif provider == 'resend':
+        monkeypatch.setitem(app.config, 'RESEND_API_KEY', 'private-api-key')
+        invalid_fields = 'PASSWORD_RESET_FROM'
+    else:
+        monkeypatch.setitem(app.config, 'SMTP_HOST', '')
+        invalid_fields = 'SMTP_HOST'
+    for client, email in ((owner, 'alex@example.com'), (visitor, 'unknown@example.com')):
+        response = client.post('/api/auth/' + route, json={'email': email}, headers=HEADERS)
+        assert response.status_code == 503
+        assert response.json == {'error': password_reset.UNAVAILABLE_MESSAGE}
+    assert not deliveries
+    assert [record.getMessage() for record in caplog.records] == [
+        f'Password reset email failed: provider={provider} stage=configuration invalid_fields={invalid_fields}'] * 2
+    for private_value in ('private-client-id', 'private-api-key', 'alex@example.com', 'unknown@example.com'):
+        assert private_value not in caplog.text
+
+
+@pytest.fixture
+def forbid_mail_diagnostic_side_effects(monkeypatch):
+    """Configuration inspection must work without provider or database access."""
+    import social
+    import db
+
+    blocked = []
+    for module, name in ((password_reset, 'urlopen'), (password_reset, 'deliver_password_reset'),
+                         (smtplib, 'SMTP'), (social, 'raw_state'), (db, 'get_connection')):
+        probe = Mock(side_effect=AssertionError('Configuration inspection contacted an external service'))
+        monkeypatch.setattr(module, name, probe)
+        blocked.append(probe)
+    yield
+    for probe in blocked:
+        probe.assert_not_called()
+
+
+def test_mail_cli_partial_gmail_names_missing_credentials_despite_fallback_settings(
+        reset_clients, monkeypatch, forbid_mail_diagnostic_side_effects):
+    monkeypatch.setitem(app.config, 'GMAIL_CLIENT_ID', 'private-client-id')
+    monkeypatch.setitem(app.config, 'RESEND_API_KEY', 'private-resend-key')
+    monkeypatch.setitem(app.config, 'PASSWORD_RESET_FROM', 'private-sender@example.com')
+    result = app.test_cli_runner().invoke(args=['password_reset', 'check-mail'])
+    assert result.exit_code == 1
+    assert 'Provider: gmail' in result.output
+    assert 'Configuration: not ready' in result.output
+    assert 'Missing or invalid settings: GMAIL_CLIENT_SECRET, GMAIL_REFRESH_TOKEN' in result.output
+    for private_value in ('private-client-id', 'private-resend-key', 'private-sender@example.com'):
+        assert private_value not in result.output
+    assert 'SMTP_HOST' not in result.output and 'RESEND_API_KEY' not in result.output
+
+
+def test_mail_cli_reports_all_invalid_smtp_names_without_values(
+        reset_clients, monkeypatch, forbid_mail_diagnostic_side_effects):
+    for name, value in {
+        'SMTP_FROM': 'private-sender-invalid', 'SMTP_HOST': '',
+        'SMTP_PORT': 'private-port-invalid', 'SMTP_USERNAME': 'private-user',
+        'SMTP_PASSWORD': '', 'SMTP_USE_TLS': 'private-tls-invalid',
+    }.items():
+        monkeypatch.setitem(app.config, name, value)
+    result = app.test_cli_runner().invoke(args=['password_reset', 'check-mail'])
+    assert result.exit_code == 1
+    assert 'Provider: smtp' in result.output
+    assert ('Missing or invalid settings: SMTP_FROM, SMTP_HOST, SMTP_PORT, SMTP_PASSWORD, SMTP_USE_TLS'
+            in result.output)
+    for private_value in ('private-sender-invalid', 'private-port-invalid', 'private-user', 'private-tls-invalid'):
+        assert private_value not in result.output
+
+
+@pytest.mark.parametrize('provider', ['gmail', 'resend', 'smtp'])
+def test_mail_cli_ready_configuration_does_not_check_connectivity_or_print_credentials(
+        reset_clients, monkeypatch, forbid_mail_diagnostic_side_effects, provider):
+    monkeypatch.setitem(app.config, 'PASSWORD_RESET_BASE_URL', '')
+    private_values = []
+    if provider == 'gmail':
+        gmail_settings(monkeypatch)
+        private_values = ['test-client-id', 'private-client-secret', 'private-refresh-token', 'sender@gmail.com']
+    elif provider == 'resend':
+        monkeypatch.setitem(app.config, 'RESEND_API_KEY', 'private-api-key')
+        monkeypatch.setitem(app.config, 'PASSWORD_RESET_FROM', 'private-sender@example.com')
+        private_values = ['private-api-key', 'private-sender@example.com']
+    else:
+        monkeypatch.setitem(app.config, 'SMTP_USERNAME', 'private-smtp-user')
+        monkeypatch.setitem(app.config, 'SMTP_PASSWORD', 'private-smtp-password')
+        private_values = ['smtp.example.com', 'accounts@example.com', 'private-smtp-user', 'private-smtp-password']
+    result = app.test_cli_runner().invoke(args=['password_reset', 'check-mail'])
+    assert result.exit_code == 0
+    assert 'Provider: ' + provider in result.output
+    assert 'Configuration: ready' in result.output
+    assert 'Missing or invalid settings:' not in result.output
+    assert 'delivery and provider authentication are not checked' in result.output
+    for private_value in private_values:
+        assert private_value not in result.output
+
+
+@pytest.mark.parametrize('base_url', ['', 'http://untrusted.example/reset',
+                                     'https://private-user:private-password@example.com/reset',
+                                     'https://[invalid', 123])
+def test_mail_cli_checks_url_only_for_legacy_links_without_printing_it(
+        reset_clients, monkeypatch, forbid_mail_diagnostic_side_effects, base_url):
+    monkeypatch.setitem(app.config, 'PASSWORD_RESET_BASE_URL', base_url)
+    runner = app.test_cli_runner()
+    assert runner.invoke(args=['password_reset', 'check-mail']).exit_code == 0
+    result = runner.invoke(args=['password_reset', 'check-mail', '--legacy-links'])
+    assert result.exit_code == 1
+    assert 'Missing or invalid settings: PASSWORD_RESET_BASE_URL' in result.output
+    if base_url:
+        assert str(base_url) not in result.output
+    monkeypatch.setitem(app.config, 'PASSWORD_RESET_BASE_URL', 'https://trusted.example/reset')
+    assert runner.invoke(args=['password_reset', 'check-mail', '--legacy-links']).exit_code == 0
+
+
+@pytest.mark.parametrize('route', ['forgot-password', 'request-password-code'])
+def test_partial_gmail_endpoint_logs_missing_secrets_without_disabling_error(
+        reset_clients, monkeypatch, caplog, route):
+    owner, visitor, deliveries = reset_clients
+    assert register(owner).status_code == 201
+    monkeypatch.setitem(app.config, 'GMAIL_CLIENT_ID', 'private-client-id')
+    monkeypatch.setitem(app.config, 'RESEND_API_KEY', 'private-fallback-key')
+    monkeypatch.setitem(app.config, 'PASSWORD_RESET_FROM', 'private-sender@example.com')
+    for client, email in ((owner, 'alex@example.com'), (visitor, 'unknown@example.com')):
+        response = client.post('/api/auth/' + route, json={'email': email}, headers=HEADERS)
+        assert response.status_code == 503
+        assert response.json == {'error': password_reset.UNAVAILABLE_MESSAGE}
+    assert not deliveries
+    assert [record.getMessage() for record in caplog.records] == [
+        'Password reset email failed: provider=gmail stage=configuration '
+        'invalid_fields=GMAIL_CLIENT_SECRET,GMAIL_REFRESH_TOKEN'] * 2
+    for private_value in ('private-client-id', 'private-fallback-key', 'private-sender@example.com',
+                          'alex@example.com', 'unknown@example.com'):
+        assert private_value not in caplog.text

@@ -25,3 +25,9 @@ services:
         sync: false
       - key: DB_PASSWORD
         sync: false
+      # Resend recovery email setup: docs/password-reset.md.
+      # Existing services must add these manually in Render's Environment settings.
+      - key: RESEND_API_KEY
+        sync: false # Private API key created in Resend.
+      - key: PASSWORD_RESET_FROM
+        sync: false # Sender address on your verified Resend domain.

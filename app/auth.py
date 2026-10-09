@@ -100,7 +100,7 @@ def register():
         player_id = 'player-' + secrets.token_hex(12)
         accounts[email] = dict(player_id=player_id, password_hash=password_hash)
         player = dict(id=player_id, name=name.strip(), initials=''.join(w[0] for w in name.split())[:2].upper(),
-                      image='', avatar='', bio='', awards=dict(Star=0, Diamond=0, Gold=0, Silver=0),
+                      image='', avatar='', bio='', photoPrivacy='friends', awards=dict(Star=0, Diamond=0, Gold=0, Silver=0),
                       gamesPlayed=0, wins=0, supporters=[], teamId=None)
         player.update({k: payload[k].strip() for k in ('city', 'state', 'country', 'sport')})
         players.append(player)

@@ -39,7 +39,7 @@ def private_accounts(tmp_path, monkeypatch):
         clients[role], ids[role] = client, result.json['userId']
     owner = clients['owner']
     result = mutate(owner, 'patch', '/api/arena/players/' + ids['owner'], dict(
-        avatar=upload('blue'), cover=upload('green'), photoPrivacy='friends'))
+        avatar=upload('blue'), cover=upload('green')))
     assert result.status_code == 200
     photo = mutate(owner, 'post', '/api/social/posts', dict(
         text='Private photo caption', sport='Football',
@@ -116,6 +116,44 @@ def assert_visible(accounts, role):
     assert accounts['story']['id'] in {story['id'] for story in feed['stories']}
 
 
+def test_new_accounts_default_to_friends_only_photos(private_accounts):
+    accounts = private_accounts
+    with raw_state() as data:
+        players = {player['id']: player for player in data['arena']['players']}
+        assert all(players[player_id]['photoPrivacy'] == 'friends' for player_id in accounts['ids'].values())
+    owner_profile = accounts['clients']['owner'].get('/api/arena/players/' + accounts['ids']['owner']).json
+    assert owner_profile['player']['photoPrivacy'] == 'friends'
+    assert_visible(accounts, 'owner')
+    assert_hidden(accounts, 'stranger')
+
+
+def test_legacy_accounts_without_a_setting_default_to_private_and_follow_friendship(private_accounts):
+    accounts = private_accounts
+    owner_id = accounts['ids']['owner']
+    with raw_state() as data:
+        next(player for player in data['arena']['players'] if player['id'] == owner_id).pop('photoPrivacy')
+    assert_visible(accounts, 'owner')
+    for role in ('friend', 'pending', 'stranger'):
+        assert_hidden(accounts, role)
+    path = '/api/friends/requests/' + accounts['requests']['friend']
+    assert mutate(accounts['clients']['owner'], 'post', path, {'action': 'accept'}).status_code == 200
+    assert_visible(accounts, 'friend')
+    assert_hidden(accounts, 'pending')
+    assert mutate(accounts['clients']['friend'], 'post', path, {'action': 'remove'}).status_code == 200
+    assert_hidden(accounts, 'friend')
+    with raw_state() as data:
+        assert 'photoPrivacy' not in next(player for player in data['arena']['players'] if player['id'] == owner_id)
+
+
+@pytest.mark.parametrize('stored_setting', [None, '', 'unexpected'])
+def test_invalid_stored_privacy_settings_fail_closed(private_accounts, stored_setting):
+    accounts = private_accounts
+    with raw_state() as data:
+        next(player for player in data['arena']['players'] if player['id'] == accounts['ids']['owner'])['photoPrivacy'] = stored_setting
+    assert_visible(accounts, 'owner')
+    assert_hidden(accounts, 'stranger')
+
+
 def test_pending_and_unrelated_accounts_cannot_access_private_photos(private_accounts):
     accounts = private_accounts
     assert_visible(accounts, 'owner')
@@ -183,15 +221,18 @@ def test_guessed_private_photo_actions_do_not_expose_or_mutate_media(private_acc
     assert all(secret not in response.get_data(as_text=True) for secret in accounts['secrets'])
 
 
-def test_privacy_toggle_persists_and_defaults_remain_public(private_accounts):
+def test_explicit_public_choice_persists_and_sample_profiles_remain_public(private_accounts):
     accounts = private_accounts
     owner_id = accounts['ids']['owner']
     owner = accounts['clients']['owner']
     path = '/api/arena/players/' + owner_id
     response = mutate(owner, 'patch', path, {'photoPrivacy': 'public'})
     assert response.status_code == 200
+    with raw_state() as data:
+        assert next(p for p in data['arena']['players'] if p['id'] == owner_id)['photoPrivacy'] == 'public'
     for role in accounts['clients']:
         assert_visible(accounts, role)
+        assert accounts['clients'][role].get(path).json['player']['photoPrivacy'] == 'public'
     assert mutate(owner, 'patch', path, {'photoPrivacy': 'friends'}).status_code == 200
     assert_hidden(accounts, 'stranger')
     # Stored settings survive a separate authenticated session.

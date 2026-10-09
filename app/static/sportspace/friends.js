@@ -1,10 +1,11 @@
 // Friend requests use the signed-in account and persist independently of follows.
 (feedState => {
   const state = {
-    dialog: null, trigger: null, tab: 'people', overview: null,
+    dialog: null, tab: 'requests', overview: null,
     players: [], knownPlayers: new Map(), relations: new Map(), relationRevision: 0, query: '', loading: false,
     playersLoading: false, error: '', playersError: '', busy: false,
-    overviewRevision: 0, playersRevision: 0, lastRefresh: 0, searchTimer: null
+    overviewRevision: 0, playersRevision: 0, lastRefresh: 0, searchTimer: null,
+    search: null, searchResults: null, searchOpen: false, selectedPlayer: -1
   };
   const markupCache = new WeakMap();
   const escapeHTML = value => String(value ?? '').replace(/[&<>"']/g, char => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[char]));
@@ -47,7 +48,11 @@
       });
       const value = await response.json().catch(() => null);
       if (!response.ok) {
-        const error = new Error(value?.error || 'Friends are unavailable right now. Please try again.');
+        const fallback = response.status === 404 ? 'The friends service could not be found' :
+          response.status === 500 ? 'The friends service encountered an error' :
+          [502, 503, 504].includes(response.status) ? 'The friends service is temporarily unavailable' :
+          'Friends are unavailable right now';
+        const error = new Error(value?.error || `${fallback} (HTTP ${response.status}). Please try again.`);
         error.status = response.status;
         throw error;
       }
@@ -178,32 +183,16 @@
       const count = button.querySelector('.friends-tab-count');
       if (count) { count.hidden = !incomingCount; count.textContent = String(incomingCount); }
     });
-    state.dialog.querySelector('.friends-search').hidden = state.tab !== 'people';
     let content = errorMarkup(state.error, 'overview');
-    if (state.tab === 'people') {
-      content += errorMarkup(state.playersError, 'players');
-      if (state.playersLoading) content += '<p class="friends-note" role="status">Finding players…</p>';
-      content += state.players.map(player => row(player)).join('');
-      if (!state.playersLoading && !state.playersError && !state.players.length) content += empty(state.query ? 'No players found' : 'Meet your next friend', state.query ? 'Try a different name or sport.' : 'Other players will appear here when they create an account.');
-    } else if (!state.overview) {
+    if (!state.overview) {
       content += '<p class="friends-note" role="status">' + (state.loading ? 'Loading your friends and requests…' : 'Your friends will appear when the connection is restored.') + '</p>';
     } else if (state.tab === 'requests') {
       content += `<section class="friends-section"><h3>Received requests · ${incomingCount}</h3>${state.overview.incoming.map(item => row(item.player)).join('') || empty('No new requests', 'Requests from other players will appear here.')}</section>`;
       content += `<section class="friends-section"><h3>Sent requests · ${state.overview.outgoing.length}</h3>${state.overview.outgoing.map(item => row(item.player)).join('') || '<p class="friends-note">You have no pending sent requests.</p>'}</section>`;
     } else if (state.tab === 'friends') {
-      content += `<section class="friends-section"><h3>Your friends · ${state.overview.friends.length}</h3>${state.overview.friends.map(player => row(player, true)).join('') || empty('Your circle starts here', 'Find a player and send a friend request. Once accepted, you’ll both appear in each other’s friends list.')}</section>`;
+      content += `<section class="friends-section"><h3>Your friends · ${state.overview.friends.length}</h3>${state.overview.friends.map(player => row(player, true)).join('') || empty('Your circle starts here', 'Use the search at the top to open a player’s profile and send a friend request.')}</section>`;
     }
     updateRegion(state.dialog.querySelector('[data-friends-content]'), content);
-  }
-
-  function updateBadge() {
-    if (!state.trigger) return;
-    const count = state.overview?.incoming.length || 0;
-    const badge = state.trigger.querySelector('.friends-badge');
-    badge.hidden = !count;
-    badge.textContent = count > 99 ? '99+' : String(count);
-    state.trigger.setAttribute('aria-label', count ? `Friends, ${count} pending friend request${count === 1 ? '' : 's'}` : 'Friends');
-    state.trigger.hidden = !signedIn();
   }
 
   function addProfileAction() {
@@ -217,23 +206,95 @@
     if (!own && !registered) return;
     let region = container.querySelector('.friends-profile-actions');
     if (!region) { region = document.createElement('div'); region.className = 'friends-profile-actions'; container.prepend(region); }
-    updateRegion(region, (own ? '<button type="button" class="friends-primary" data-friends-open="friends">Manage friends</button>' : actions(playerId, true)) + errorMarkup(state.error, 'overview'));
+    const incomingCount = state.overview?.incoming.length || 0;
+    updateRegion(region, (own ? `<button type="button" class="friends-primary" data-friends-open="${incomingCount ? 'requests' : 'friends'}" aria-controls="friends-dialog" aria-haspopup="dialog" aria-expanded="${!!state.dialog?.open}">Manage friends${incomingCount ? ` · ${incomingCount} request${incomingCount === 1 ? '' : 's'}` : ''}</button>` : actions(playerId, true)) + errorMarkup(state.error, 'overview'));
   }
 
-  function addSummary() {
-    if (!signedIn() || typeof view === 'undefined') return;
-    const ownProfile = view === 'player' && arena.data?.currentUserId === account.userId && arena.route.split('/')[1] === encodeURIComponent(account.userId);
-    if (!['ring', 'connections'].includes(view) && !ownProfile) return;
-    const content = document.querySelector('#content');
-    if (!content) return;
-    let summary = content.querySelector('.friends-summary');
-    if (!summary) { summary = document.createElement('section'); summary.className = 'friends-summary'; summary.setAttribute('aria-label', 'Your friends and requests'); content.prepend(summary); }
-    const friends = state.overview?.friends.length || 0, incoming = state.overview?.incoming.length || 0;
-    const note = state.error ? 'Friends could not refresh. Open Friends to try again.' : !state.overview ? 'Loading your friends…' : `${friends} friend${friends === 1 ? '' : 's'} · ${incoming} received request${incoming === 1 ? '' : 's'}`;
-    updateRegion(summary, `<div><strong>Friends &amp; requests</strong><p>${escapeHTML(note)}</p></div><div class="friends-summary-actions"><button type="button" class="friends-primary" data-friends-open="people">Find players</button><button type="button" data-friends-open="requests">Friend requests${incoming ? ' · ' + incoming : ''}</button><button type="button" data-friends-open="friends">View friends</button></div>`);
+  function renderSearch() {
+    if (!state.search || !state.searchResults) return;
+    const expanded = state.searchOpen && !!state.query && signedIn();
+    state.searchResults.hidden = !expanded;
+    state.search.setAttribute('aria-expanded', String(expanded));
+    state.search.removeAttribute('aria-activedescendant');
+    if (!expanded) return;
+    let content = '<strong class="player-search-heading">Players</strong>';
+    if (state.playersError) content += errorMarkup(state.playersError, 'players');
+    else if (state.playersLoading) content += '<p class="player-search-note" role="status">Searching players…</p>';
+    else if (!state.players.length) content += '<p class="player-search-note" role="status">No players found. Try another name or sport.</p>';
+    const selected = state.selectedPlayer;
+    content += `<div id="player-search-list" role="listbox" aria-label="Players">${state.players.map((player, index) => `<a id="player-search-option-${index}" class="player-search-option" href="${profileLink(player.id)}" role="option" aria-selected="${index === selected}" data-player-search-id="${escapeHTML(player.id)}" data-friends-profile>${avatar(player)}<span><strong>${escapeHTML(player.name)}</strong><small>${escapeHTML(player.sport)} · View profile</small></span></a>`).join('')}</div>`;
+    updateRegion(state.searchResults, content);
+    if (selected >= 0 && state.players[selected]) state.search.setAttribute('aria-activedescendant', 'player-search-option-' + selected);
   }
 
-  function renderUI() { updateBadge(); renderDialog(); addProfileAction(); addSummary(); }
+  function closeSearch() {
+    state.searchOpen = false;
+    state.selectedPlayer = -1;
+    renderSearch();
+  }
+
+  function selectPlayer(playerId) {
+    closeSearch();
+    const route = profileLink(playerId);
+    if (location.hash === route && typeof navigate === 'function') navigate(route.slice(1));
+    else location.hash = route;
+  }
+
+  function createSearch() {
+    const search = document.querySelector('#search');
+    if (!search) return;
+    state.search = search;
+    search.setAttribute('role', 'combobox');
+    search.setAttribute('aria-autocomplete', 'list');
+    search.setAttribute('aria-controls', 'player-search-list');
+    search.setAttribute('aria-expanded', 'false');
+    search.setAttribute('autocomplete', 'off');
+    const results = document.createElement('div');
+    results.id = 'player-search-results';
+    results.className = 'player-search-results';
+    results.hidden = true;
+    search.closest('.search').append(results);
+    state.searchResults = results;
+    search.addEventListener('input', () => {
+      state.query = search.value.trim().slice(0, 100);
+      state.playersRevision++;
+      state.players = [];
+      state.playersError = '';
+      state.playersLoading = !!state.query;
+      state.searchOpen = !!state.query;
+      state.selectedPlayer = -1;
+      clearTimeout(state.searchTimer);
+      renderSearch();
+      if (state.query) state.searchTimer = setTimeout(loadPlayers, 250);
+    });
+    search.addEventListener('focus', () => {
+      if (search.value.trim() !== state.query) {
+        state.query = search.value.trim().slice(0, 100);
+        state.players = [];
+        state.playersError = '';
+        state.selectedPlayer = -1;
+        if (state.query) loadPlayers();
+      }
+      state.searchOpen = !!state.query;
+      renderSearch();
+    });
+    search.addEventListener('keydown', event => {
+      if (event.key === 'Escape') { if (state.searchOpen) { event.preventDefault(); closeSearch(); } return; }
+      if (!state.query || !state.players.length) return;
+      if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+        event.preventDefault();
+        state.searchOpen = true;
+        const count = state.players.length;
+        state.selectedPlayer = event.key === 'ArrowDown' ? (state.selectedPlayer + 1) % count : (state.selectedPlayer < 0 ? count - 1 : (state.selectedPlayer - 1 + count) % count);
+        renderSearch();
+      } else if (event.key === 'Enter' && state.searchOpen) {
+        event.preventDefault();
+        selectPlayer(state.players[Math.max(0, state.selectedPlayer)].id);
+      }
+    });
+  }
+
+  function renderUI() { renderDialog(); addProfileAction(); renderSearch(); }
 
   async function loadOverview() {
     if (!signedIn() || state.busy || state.loading) return;
@@ -248,12 +309,12 @@
   }
 
   async function loadPlayers() {
-    if (!signedIn()) return;
+    if (!signedIn() || !state.query) return;
     const revision = ++state.playersRevision;
     const relationRevision = ++state.relationRevision;
     state.playersLoading = true;
     state.playersError = '';
-    renderDialog();
+    renderSearch();
     try {
       const value = await request('/players?q=' + encodeURIComponent(state.query));
       if (revision === state.playersRevision && value.currentUserId === account.userId) { state.players = value.players; remember(value.players, relationRevision); }
@@ -283,7 +344,7 @@
       if (signedIn()) {
         state.error = error.message;
         refreshRelationship = error.status === 409 || error.status === 404;
-        if (!state.dialog.open) { state.tab = 'requests'; state.dialog.showModal(); state.trigger.setAttribute('aria-expanded', 'true'); }
+        if (!state.dialog.open) { state.tab = 'requests'; state.dialog.showModal(); }
       }
     } finally {
       state.busy = false;
@@ -296,57 +357,48 @@
   async function open(tab) {
     await accountReady;
     if (!signedIn()) return;
-    state.tab = ['people', 'requests', 'friends'].includes(tab) ? tab : state.overview?.incoming.length ? 'requests' : 'people';
+    state.tab = ['requests', 'friends'].includes(tab) ? tab : 'requests';
+    closeSearch();
     renderDialog();
-    if (!state.dialog.open) { state.dialog.showModal(); state.trigger.setAttribute('aria-expanded', 'true'); }
-    await Promise.all([loadOverview(), loadPlayers()]);
+    if (!state.dialog.open) { state.dialog.showModal(); addProfileAction(); }
+    await loadOverview();
   }
 
   function createDialog() {
     const dialog = document.createElement('dialog');
     dialog.id = 'friends-dialog'; dialog.className = 'friends-dialog';
     dialog.setAttribute('aria-labelledby', 'friends-title');
-    dialog.innerHTML = `<header class="friends-heading"><div><span class="friends-kicker">YOUR PEOPLE. YOUR GAME.</span><h2 id="friends-title">Build your circle</h2><p class="friends-description">Send a request. Make a friend. Find your next game.</p></div><button type="button" class="friends-close" data-friends-close aria-label="Close friends">${icon('close')}</button></header><nav class="friends-tabs" aria-label="Friends sections"><button type="button" data-friends-tab="people" aria-pressed="true">Find players</button><button type="button" data-friends-tab="requests" aria-pressed="false">Requests <span class="friends-tab-count" hidden></span></button><button type="button" data-friends-tab="friends" aria-pressed="false">Friends</button></nav><label class="friends-search" for="friends-player-search"><span>Find a player</span><input type="search" id="friends-player-search" placeholder="Search by name or sport" autocomplete="off" maxlength="100"></label><div class="friends-body" data-friends-content></div>`;
+    dialog.innerHTML = `<header class="friends-heading"><div><span class="friends-kicker">YOUR PEOPLE. YOUR GAME.</span><h2 id="friends-title">Your circle</h2><p class="friends-description">Manage your requests and friends. Search for players at the top of the page.</p></div><button type="button" class="friends-close" data-friends-close aria-label="Close friends">${icon('close')}</button></header><nav class="friends-tabs" aria-label="Friends sections"><button type="button" data-friends-tab="requests" aria-pressed="true">Requests <span class="friends-tab-count" hidden></span></button><button type="button" data-friends-tab="friends" aria-pressed="false">Friends</button></nav><div class="friends-body" data-friends-content></div>`;
     document.body.append(dialog);
     state.dialog = dialog;
-    dialog.querySelector('#friends-player-search').addEventListener('input', event => {
-      state.query = event.target.value.trim();
-      state.playersRevision++;
-      state.players = [];
-      state.playersLoading = true;
-      renderDialog();
-      clearTimeout(state.searchTimer);
-      state.searchTimer = setTimeout(loadPlayers, 250);
-    });
-    dialog.addEventListener('close', () => state.trigger?.setAttribute('aria-expanded', 'false'));
+    dialog.addEventListener('close', addProfileAction);
   }
 
   document.addEventListener('click', event => {
     const button = event.target.closest('button');
     if (button?.hasAttribute('data-friend-action')) { event.preventDefault(); mutate(button); }
     else if (button?.hasAttribute('data-friends-open')) open(button.dataset.friendsOpen);
-    else if (button?.hasAttribute('data-friends-tab')) { state.tab = button.dataset.friendsTab; renderDialog(); if (state.tab === 'people') loadPlayers(); }
+    else if (button?.hasAttribute('data-friends-tab')) { state.tab = button.dataset.friendsTab; renderDialog(); }
     else if (button?.hasAttribute('data-friends-close')) state.dialog.close();
-    else if (button?.hasAttribute('data-friends-retry')) button.dataset.friendsRetry === 'players' ? loadPlayers() : loadOverview();
-    if (event.target.closest('[data-friends-profile]')) state.dialog?.close();
+    else if (button?.hasAttribute('data-friends-retry')) {
+      const source = button.dataset.friendsRetry;
+      if (source === 'players') loadPlayers();
+      else loadOverview();
+    }
+    const profile = event.target.closest('[data-friends-profile]');
+    if (profile) { state.dialog?.close(); closeSearch(); }
+    else if (!event.target.closest('.search')) closeSearch();
   });
 
   if (typeof render === 'function') {
     const previousRender = render;
-    render = function () { previousRender(); addProfileAction(); addSummary(); };
+    render = function () { previousRender(); addProfileAction(); };
   }
   window.RingFriends = {open, refresh: loadOverview, invalidateMedia};
   accountReady.then(() => {
     createDialog();
-    const button = document.createElement('button');
-    button.type = 'button'; button.className = 'friends-trigger';
-    button.setAttribute('aria-controls', 'friends-dialog'); button.setAttribute('aria-haspopup', 'dialog'); button.setAttribute('aria-expanded', 'false');
-    button.innerHTML = icon('friends') + '<span>Friends</span><span class="friends-badge" hidden></span>';
-    button.addEventListener('click', () => open());
-    const topbar = document.querySelector('.topbar');
-    topbar.insertBefore(button, topbar.querySelector('.account-logout'));
-    state.trigger = button;
-    Promise.all([loadOverview(), loadPlayers()]);
+    createSearch();
+    loadOverview();
     setInterval(() => {
       if (document.visibilityState !== 'hidden' && signedIn() && Date.now() - state.lastRefresh >= (state.dialog.open ? 8000 : 30000)) loadOverview();
     }, 8000);
@@ -358,12 +410,12 @@
     state.overviewRevision++; state.playersRevision++;
     state.overview = null; state.players = []; state.knownPlayers.clear(); state.relations.clear();
     state.query = '';
-    const search = state.dialog?.querySelector('#friends-player-search');
-    if (search) search.value = '';
+    if (state.search) state.search.value = '';
+    closeSearch();
     state.error = ''; state.playersError = ''; state.loading = false; state.playersLoading = false;
     clearTimeout(state.searchTimer);
     if (state.dialog?.open) state.dialog.close();
-    document.querySelectorAll('.friends-profile-actions, .friends-summary').forEach(node => node.remove());
+    document.querySelectorAll('.friends-profile-actions').forEach(node => node.remove());
     renderUI();
   }).observe(document.body, {attributes: true, attributeFilter: ['class']});
 })(typeof state === 'undefined' ? null : state);

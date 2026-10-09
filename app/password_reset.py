@@ -12,6 +12,7 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import quote, urlencode, urlsplit
 from urllib.request import Request, urlopen
 
+import click
 from flask import Blueprint, current_app, jsonify, request
 from werkzeug.security import check_password_hash, generate_password_hash
 
@@ -37,56 +38,96 @@ def setting(name, default=None):
     return current_app.config.get(name, os.environ.get(name, default))
 
 
-def mail_settings(require_base_url=True):
-    """Only the configured public URL may supply the reset link's origin."""
+def configured_mail_provider():
+    if any(setting(name) for name in ('GMAIL_CLIENT_ID', 'GMAIL_CLIENT_SECRET', 'GMAIL_REFRESH_TOKEN')):
+        return 'gmail'
+    return 'resend' if setting('RESEND_API_KEY') else 'smtp'
+
+
+def log_mail_failure(provider, stage, error=None, invalid_fields=None):
+    """Log delivery diagnostics without provider bodies or account/recovery data."""
+    detail = ''
+    if isinstance(error, HTTPError) and type(error.code) is int and 100 <= error.code <= 599:
+        detail = f' http_status={error.code}'
+    elif isinstance(error, smtplib.SMTPException):
+        detail = f' smtp_error={type(error).__name__}'
+    if stage == 'configuration' and invalid_fields:
+        detail += ' invalid_fields=' + ','.join(invalid_fields)
+    current_app.logger.warning('Password reset email failed: provider=%s stage=%s%s', provider, stage, detail)
+
+
+def mail_settings(require_base_url=True, invalid_fields=None):
+    """Validate the selected provider; diagnostics contain setting names only."""
+    invalid = []
     base_url = setting('PASSWORD_RESET_BASE_URL')
     if require_base_url:
-        if not isinstance(base_url, str) or not base_url:
-            return None
+        valid_base_url = isinstance(base_url, str) and bool(base_url)
         try:
-            parsed = urlsplit(base_url)
-            local_http = parsed.scheme == 'http' and parsed.hostname in ('localhost', '127.0.0.1', '::1')
-            if not parsed.hostname or parsed.username or parsed.password or parsed.query or parsed.fragment:
-                return None
-            if parsed.scheme != 'https' and not local_http:
-                return None
-            if any(character.isspace() for character in base_url):
-                return None
+            if valid_base_url:
+                parsed = urlsplit(base_url)
+                local_http = parsed.scheme == 'http' and parsed.hostname in ('localhost', '127.0.0.1', '::1')
+                valid_base_url = (bool(parsed.hostname) and not parsed.username and not parsed.password
+                                  and not parsed.query and not parsed.fragment
+                                  and (parsed.scheme == 'https' or local_http)
+                                  and not any(character.isspace() for character in base_url))
         except (ValueError, TypeError):
-            return None
+            valid_base_url = False
+        if not valid_base_url:
+            invalid.append('PASSWORD_RESET_BASE_URL')
     gmail = {name: setting(name) for name in ('GMAIL_CLIENT_ID', 'GMAIL_CLIENT_SECRET', 'GMAIL_REFRESH_TOKEN')}
     api_key = setting('RESEND_API_KEY')
-    sender = setting('PASSWORD_RESET_FROM') if any(gmail.values()) or api_key else setting('SMTP_FROM')
+    sender_name = 'PASSWORD_RESET_FROM' if any(gmail.values()) or api_key else 'SMTP_FROM'
+    sender = setting(sender_name)
     if not isinstance(sender, str) or '@' not in sender or any(character in sender for character in '\r\n'):
-        return None
+        invalid.append(sender_name)
     if any(gmail.values()):
-        if not all(isinstance(value, str) and value and not any(character.isspace() for character in value)
-                   for value in gmail.values()):
-            return None
-        return dict(provider='gmail', sender=sender, base_url=base_url,
-                    client_id=gmail['GMAIL_CLIENT_ID'], client_secret=gmail['GMAIL_CLIENT_SECRET'],
-                    refresh_token=gmail['GMAIL_REFRESH_TOKEN'])
-    if api_key:
+        for name, value in gmail.items():
+            if not isinstance(value, str) or not value or any(character.isspace() for character in value):
+                invalid.append(name)
+        settings = dict(provider='gmail', sender=sender, base_url=base_url,
+                        client_id=gmail['GMAIL_CLIENT_ID'], client_secret=gmail['GMAIL_CLIENT_SECRET'],
+                        refresh_token=gmail['GMAIL_REFRESH_TOKEN'])
+    elif api_key:
         if not isinstance(api_key, str) or any(character.isspace() for character in api_key):
-            return None
-        return dict(provider='resend', api_key=api_key, sender=sender, base_url=base_url)
-    host = setting('SMTP_HOST')
-    if not isinstance(host, str) or not host:
-        return None
-    try:
-        port = int(setting('SMTP_PORT', 587))
-        if not 1 <= port <= 65535:
-            return None
-    except (ValueError, TypeError):
-        return None
-    username, password = setting('SMTP_USERNAME'), setting('SMTP_PASSWORD')
-    if bool(username) != bool(password):
-        return None
-    tls = str(setting('SMTP_USE_TLS', 'true')).casefold()
-    if tls not in ('true', 'false', '1', '0'):
-        return None
-    return dict(provider='smtp', host=host, port=port, sender=sender, base_url=base_url,
-                username=username, password=password, use_tls=tls in ('true', '1'))
+            invalid.append('RESEND_API_KEY')
+        settings = dict(provider='resend', api_key=api_key, sender=sender, base_url=base_url)
+    else:
+        host = setting('SMTP_HOST')
+        if not isinstance(host, str) or not host:
+            invalid.append('SMTP_HOST')
+        port = None
+        try:
+            port = int(setting('SMTP_PORT', 587))
+            if not 1 <= port <= 65535:
+                invalid.append('SMTP_PORT')
+        except (ValueError, TypeError):
+            invalid.append('SMTP_PORT')
+        username, password = setting('SMTP_USERNAME'), setting('SMTP_PASSWORD')
+        if bool(username) != bool(password):
+            invalid.append('SMTP_PASSWORD' if username else 'SMTP_USERNAME')
+        tls = str(setting('SMTP_USE_TLS', 'true')).casefold()
+        if tls not in ('true', 'false', '1', '0'):
+            invalid.append('SMTP_USE_TLS')
+        settings = dict(provider='smtp', host=host, port=port, sender=sender, base_url=base_url,
+                        username=username, password=password, use_tls=tls in ('true', '1'))
+    if invalid_fields is not None:
+        invalid_fields.extend(invalid)
+    return None if invalid else settings
+
+
+@password_reset.cli.command('check-mail')
+@click.option('--legacy-links', is_flag=True, help='Also validate the public URL required for reset links.')
+def check_mail(legacy_links):
+    """Check sender configuration without contacting a database or mail service."""
+    invalid_fields = []
+    settings = mail_settings(require_base_url=legacy_links, invalid_fields=invalid_fields)
+    click.echo('Provider: ' + configured_mail_provider())
+    click.echo('Configuration: ' + ('ready' if settings is not None else 'not ready'))
+    if invalid_fields:
+        click.echo('Missing or invalid settings: ' + ', '.join(invalid_fields))
+    click.echo('Configuration check only; delivery and provider authentication are not checked.')
+    if settings is None:
+        raise click.exceptions.Exit(1)
 
 
 def email_text(settings, token):
@@ -140,8 +181,8 @@ def deliver_gmail_reset(settings, recipient, token):
             access_token = result.get('access_token')
             if not isinstance(access_token, str) or not access_token or any(character.isspace() for character in access_token):
                 raise ValueError('Invalid provider authentication response')
-    except (HTTPError, URLError, OSError, ValueError):
-        current_app.logger.warning('Password reset email service unavailable')
+    except (HTTPError, URLError, OSError, ValueError) as error:
+        log_mail_failure('gmail', 'oauth', error)
         return False, False
     if recipient is None:
         return True, False
@@ -156,8 +197,8 @@ def deliver_gmail_reset(settings, recipient, token):
             if not isinstance(result.get('id'), str) or not result['id']:
                 raise ValueError('Invalid delivery response')
         return True, True
-    except (HTTPError, URLError, OSError, ValueError):
-        current_app.logger.warning('Password reset email delivery failed')
+    except (HTTPError, URLError, OSError, ValueError) as error:
+        log_mail_failure('gmail', 'send', error)
         return True, False
 
 
@@ -177,10 +218,10 @@ def deliver_resend_reset(settings, recipient, token):
             if not isinstance(result.get('id'), str) or not result['id']:
                 raise ValueError('Invalid delivery response')
         return True, True
-    except (HTTPError, URLError, OSError, ValueError):
+    except (HTTPError, URLError, OSError, ValueError) as error:
         # Keep the response generic even if the configured provider fails;
         # errors only for registered accounts would reveal account existence.
-        current_app.logger.warning('Password reset email delivery failed')
+        log_mail_failure('resend', 'send', error)
         return True, False
 
 
@@ -202,18 +243,18 @@ def deliver_password_reset(settings, recipient, token):
             connection.starttls(context=ssl.create_default_context())
         if settings['username']:
             connection.login(settings['username'], settings['password'])
-    except (OSError, smtplib.SMTPException):
+    except (OSError, smtplib.SMTPException) as error:
         if connection:
             connection.close()
-        current_app.logger.warning('Password reset email service unavailable')
+        log_mail_failure('smtp', 'connect', error)
         return False, False
     try:
         if recipient is None:
             return True, False
         connection.send_message(email_message(settings, recipient, token))
         return True, True
-    except (OSError, smtplib.SMTPException):
-        current_app.logger.warning('Password reset email delivery failed')
+    except (OSError, smtplib.SMTPException) as error:
+        log_mail_failure('smtp', 'send', error)
         return True, False
     finally:
         connection.close()
@@ -299,8 +340,10 @@ def request_password_code():
             or '.' not in email.rsplit('@', 1)[-1]
             or any(character.isspace() or ord(character) < 32 or ord(character) == 127 for character in email)):
         return jsonify(error='Enter a valid email address'), 400
-    settings = mail_settings(require_base_url=False)
+    invalid_fields = []
+    settings = mail_settings(require_base_url=False, invalid_fields=invalid_fields)
     if settings is None:
+        log_mail_failure(configured_mail_provider(), 'configuration', invalid_fields=invalid_fields)
         return jsonify(error=UNAVAILABLE_MESSAGE), 503
     settings = dict(settings, purpose='code')
     with raw_state() as data:
@@ -396,8 +439,10 @@ def forgot_password():
     email = email.strip().casefold()
     if len(email) > 254 or '@' not in email or '.' not in email.rsplit('@', 1)[-1] or any(character.isspace() for character in email):
         return jsonify(error='Enter a valid email address'), 400
-    settings = mail_settings()
+    invalid_fields = []
+    settings = mail_settings(invalid_fields=invalid_fields)
     if settings is None:
+        log_mail_failure(configured_mail_provider(), 'configuration', invalid_fields=invalid_fields)
         return jsonify(error=UNAVAILABLE_MESSAGE), 503
     now = time.time()
     token, token_digest, recipient = None, None, None

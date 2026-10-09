@@ -41,19 +41,22 @@ Account and session fields are never included in public API responses.
 
 ## Photos
 
-Open **Friends & requests** on Home or in the menu. **Find players → Add friend**
-sends a request to another registered account; **Friend requests** shows requests
-you can accept or decline. Add friend is also available on registered player
-profiles. Sample profiles cannot receive requests. Sending works even if the
-friend-list refresh fails; the app offers a retry when a request cannot be sent.
+Open a player from a public post or use the main search to find registered
+players. Choose **Add friend** on their profile to send a request.
+**Manage friends** on your own profile shows requests to accept
+or decline and the accepted friends list. Sample profiles cannot receive
+requests. Sending works even if the friend-list refresh fails; the app offers
+a retry when a request cannot be sent.
 
 Use **Profile → Edit profile → Who can see your photos? → Friends only → Save
 changes** to restrict profile photos, photo posts and stories, including existing
 photos. Only you and accepted friends can see them. Pending requests, followers
 and teammates do not grant access. Your name, sporting results and text posts stay
 visible. Removing a friendship revokes photo access. The app checks access on the
-server and clears cached photos when the friendship changes. Existing profiles
-default to **Everyone on Ring**. People who previously viewed a public photo may
+server and clears cached photos when the friendship changes. New accounts and
+existing accounts without a saved choice default to **Friends only**; an explicit
+**Everyone on Ring** choice remains public. Sample profiles remain public.
+People who previously viewed a public photo may
 have saved a copy; changing privacy cannot remove those copies or protect the
 original source of an external image URL.
 

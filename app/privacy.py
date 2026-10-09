@@ -5,9 +5,16 @@ from auth import current_user_id
 PHOTO_FIELDS = ('image', 'avatar', 'cover')
 
 
-def photo_privacy(player):
-    # Existing profiles are public; an unexpected persisted value fails closed.
-    return 'public' if player.get('photoPrivacy', 'public') == 'public' else 'friends'
+def photo_privacy(player, data=None):
+    if 'photoPrivacy' in player:
+        # Keep an explicit public choice; an unexpected stored value fails closed.
+        return 'public' if player['photoPrivacy'] == 'public' else 'friends'
+    # Legacy account photos use the same private default as new accounts.
+    # Seeded sample players remain public without exposing account metadata.
+    if data is not None and any(account['player_id'] == player['id']
+                                for account in data.get('accounts', {}).values()):
+        return 'friends'
+    return 'public'
 
 
 def player_for(data, player_id):
@@ -18,7 +25,7 @@ def player_for(data, player_id):
 def can_view_photos(data, owner_id, viewer_id=None):
     viewer_id = current_user_id() if viewer_id is None else viewer_id
     owner = player_for(data, owner_id)
-    if owner is None or photo_privacy(owner) == 'public' or owner_id == viewer_id:
+    if owner is None or photo_privacy(owner, data) == 'public' or owner_id == viewer_id:
         return True
     account_ids = {account['player_id'] for account in data.get('accounts', {}).values()}
     if owner_id not in account_ids or viewer_id not in account_ids:
@@ -30,7 +37,7 @@ def can_view_photos(data, owner_id, viewer_id=None):
 
 def public_photos(player, data):
     allowed = can_view_photos(data, player['id'])
-    result = {**player, 'photoPrivacy': photo_privacy(player),
+    result = {**player, 'photoPrivacy': photo_privacy(player, data),
               'canViewPhotos': allowed, 'mediaHidden': not allowed}
     if not allowed:
         for key in PHOTO_FIELDS:
