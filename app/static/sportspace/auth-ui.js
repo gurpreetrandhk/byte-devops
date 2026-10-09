@@ -7,7 +7,7 @@ let accountResetToken=new URLSearchParams(location.hash.slice(1)).get('reset-tok
 if(accountResetToken)history.replaceState(null,'',location.pathname+location.search+'#ring');
 window.fetch=async function(input,options={}){
   const url=typeof input==='string'?input:input.url;
-  if(url.startsWith('/api/arena')||url.startsWith('/api/social')||url.startsWith('/api/messages'))await accountReady;
+  if(url.startsWith('/api/arena')||url.startsWith('/api/social')||url.startsWith('/api/messages')||url.startsWith('/api/friends'))await accountReady;
   if(url.startsWith('/api/'))options={...options,headers:{...options.headers,'X-Dhoyo-Request':'1'}};
   const result=await nativeFetch(input,options);
   if(result.status===401&&!url.startsWith('/api/auth/')&&!document.body.classList.contains('account-visible')){

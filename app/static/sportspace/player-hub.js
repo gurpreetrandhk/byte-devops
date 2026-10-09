@@ -62,7 +62,17 @@ async function loadPlayerHub(id){
   if(playerHub.loading.has(id)||playerHub.profiles.has(id)||playerHub.errors.has(id))return;
   playerHub.loading.add(id);
   const revision=playerHub.revision;
-  try{const data=await arenaAPI('/players/'+encodeURIComponent(id));if(revision===playerHub.revision)playerHub.profiles.set(id,data);}
+  try{
+    const data=await arenaAPI('/players/'+encodeURIComponent(id));
+    if(revision===playerHub.revision){
+      playerHub.profiles.set(id,data);
+      // A player can join after the visitor's Arena overview was loaded.
+      if(arena.data){
+        const index=arena.data.players.findIndex(p=>p.id===id);
+        if(index<0)arena.data.players.push(data.player);else arena.data.players[index]=data.player;
+      }
+    }
+  }
   catch(error){if(revision===playerHub.revision)playerHub.errors.set(id,error.message);}
   finally{playerHub.loading.delete(id);if((view==='player'&&decodeURIComponent(arena.route.split('/')[1]||'')===id)||(view==='ring'&&id===arena.data?.currentUserId))render();}
 }
@@ -99,7 +109,8 @@ function hubProfileConnections(p,data){
   const teams=data?.teams||arena.data.teams.filter(t=>t.members.includes(p.id));
   const connections=data?.connections||[];
   const matchPeers=connections.filter(c=>c.matchIds.length);
-  return `<section id="profile-connections" class="hub-connections-map hub-profile-connections" aria-label="${escape(p.name)}'s full connections"><div class="hub-section-heading"><div><span class="eyebrow">YOUR PEOPLE. YOUR GAME.</span><h2>${escape(p.name.split(' ')[0])}'s connections</h2><p>${teams.length} squads · ${data?connections.length:'…'} connected players. Click anyone to explore their profile and connections.</p></div><a href="#teams">Find teammates ↗</a></div><a class="hub-map-root" href="${hubPlayerURL(p.id)}" aria-label="Open ${escape(p.name)} profile and connections">${arenaAvatar(p)}<strong>${escape(p.name)}</strong>${rankBadge(p.rank)}</a><div class="hub-map-line" aria-hidden="true"></div><div class="hub-squad-grid">${teams.map(t=>hubSquad(t,p.id)).join('')||hubEmpty('No accepted squad connections yet.')}</div>${matchPeers.length?`<div class="hub-match-connections"><span class="eyebrow">CONNECTED THROUGH MATCHES</span><div class="hub-roster">${matchPeers.map(c=>hubConnectionCard(arenaPlayer(c.playerId)||c.player,c.matchIds.length+' shared match'+(c.matchIds.length===1?'':'es'))).join('')}</div></div>`:''}${!data?'<p class="hub-connection-loading" role="status">Loading all player and match connections…</p>':''}</section>`;
+  const friends=connections.filter(c=>c.friend);
+  return `<section id="profile-connections" class="hub-connections-map hub-profile-connections" aria-label="${escape(p.name)}'s full connections"><div class="hub-section-heading"><div><span class="eyebrow">YOUR PEOPLE. YOUR GAME.</span><h2>${escape(p.name.split(' ')[0])}'s connections</h2><p>${teams.length} squads · ${data?friends.length:'…'} friends · ${data?connections.length:'…'} connected players. Click anyone to explore their profile and connections.</p></div><a href="#teams">Find teammates ↗</a></div><a class="hub-map-root" href="${hubPlayerURL(p.id)}" aria-label="Open ${escape(p.name)} profile and connections">${arenaAvatar(p)}<strong>${escape(p.name)}</strong>${rankBadge(p.rank)}</a><div class="hub-map-line" aria-hidden="true"></div>${friends.length?`<div class="hub-match-connections"><span class="eyebrow">FRIENDS</span><div class="hub-roster">${friends.map(c=>hubConnectionCard(arenaPlayer(c.playerId)||c.player,'Friend')).join('')}</div></div>`:''}<div class="hub-squad-grid">${teams.map(t=>hubSquad(t,p.id)).join('')||hubEmpty('No accepted squad connections yet.')}</div>${matchPeers.length?`<div class="hub-match-connections"><span class="eyebrow">CONNECTED THROUGH MATCHES</span><div class="hub-roster">${matchPeers.map(c=>hubConnectionCard(arenaPlayer(c.playerId)||c.player,c.matchIds.length+' shared match'+(c.matchIds.length===1?'':'es'))).join('')}</div></div>`:''}${!data?'<p class="hub-connection-loading" role="status">Loading all player, friend and match connections…</p>':''}</section>`;
 }
 
 function hubConnectionDirectory(){
@@ -134,7 +145,10 @@ function hubProfileStories(p,data){
 
 playerPage=function(){
   const id=decodeURIComponent(arena.route.split('/')[1]||''),p=arenaPlayer(id);
-  if(!p)return hubEmpty('Player not found.');
+  if(!p){
+    const error=playerHub.errors.get(id);
+    return error?`<div class="arena-error" role="alert">${escape(error)} <button type="button" data-hub-retry="${escape(id)}">Retry profile</button></div>`:'<p role="status" class="hub-empty">Loading this player’s profile…</p>';
+  }
   const data=playerHub.profiles.get(id),error=playerHub.errors.get(id);
   const requested=arena.route.split('/')[2],tab=['matches','awards','photos'].includes(requested)?requested:'moments';
   const own=id===arena.data.currentUserId,teamCount=arena.data.teams.filter(t=>t.members.includes(id)).length;

@@ -1,0 +1,298 @@
+// Friend requests use the signed-in account and persist independently of follows.
+(() => {
+  const state = {
+    dialog: null, trigger: null, tab: 'people', overview: null,
+    players: [], knownPlayers: new Map(), query: '', loading: false,
+    playersLoading: false, error: '', playersError: '', busy: false,
+    overviewRevision: 0, playersRevision: 0, lastRefresh: 0, searchTimer: null
+  };
+  const markupCache = new WeakMap();
+  const escapeHTML = value => String(value ?? '').replace(/[&<>"']/g, char => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[char]));
+  const icon = name => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${name === 'close' ? '<path d="m6 6 12 12M6 18 18 6"/>' : '<circle cx="9" cy="8" r="4"/><path d="M2 21v-2a7 7 0 0 1 14 0v2M19 8v6m-3-3h6"/>'}</svg>`;
+  const avatar = player => `<span class="friends-avatar" aria-hidden="true">${player.avatar ? `<img src="${escapeHTML(player.avatar)}" alt="" loading="lazy">` : escapeHTML(player.initials || player.name?.slice(0, 2) || 'P')}</span>`;
+  const empty = (title, copy) => `<div class="friends-empty"><h3>${escapeHTML(title)}</h3><p>${escapeHTML(copy)}</p></div>`;
+  const profileLink = id => '#player/' + encodeURIComponent(id) + '/moments';
+  const signedIn = () => !!account.userId && !document.body.classList.contains('account-visible');
+
+  // Keep keyboard focus in place when background refreshes update a list.
+  function updateRegion(node, markup) {
+    if (!node || markupCache.get(node) === markup) return;
+    const active = document.activeElement;
+    const attributes = ['data-friend-action', 'data-friends-tab', 'data-friends-open', 'data-friends-retry'];
+    const attribute = node.contains(active) && attributes.find(name => active.hasAttribute(name));
+    const value = attribute ? active.getAttribute(attribute) : null;
+    const playerId = active?.getAttribute('data-friend-player');
+    const requestId = active?.getAttribute('data-friend-id');
+    node.innerHTML = markup;
+    markupCache.set(node, markup);
+    if (attribute) {
+      const replacement = [...node.querySelectorAll(`[${attribute}]`)].find(element =>
+        element.getAttribute(attribute) === value &&
+        element.getAttribute('data-friend-player') === playerId &&
+        element.getAttribute('data-friend-id') === requestId);
+      replacement?.focus({preventScroll: true});
+    }
+  }
+
+  async function request(path, payload) {
+    if (!signedIn()) throw new Error('Sign in again to manage friends.');
+    const userId = account.userId;
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 10000);
+    try {
+      const response = await fetch('/api/friends' + path, {
+        method: payload ? 'POST' : 'GET', signal: controller.signal,
+        headers: payload ? {'Content-Type': 'application/json', 'X-Dhoyo-Request': '1'} : {},
+        body: payload ? JSON.stringify(payload) : undefined
+      });
+      const value = await response.json().catch(() => null);
+      if (!response.ok) throw new Error(value?.error || 'Friends are unavailable right now. Please try again.');
+      if (!signedIn() || account.userId !== userId) throw new Error('Sign in again to manage friends.');
+      if (!value || typeof value !== 'object') throw new Error('Could not load friends. Please try again.');
+      return value;
+    } catch (error) {
+      if (error.name === 'AbortError') throw new Error('The request timed out. Please try again.');
+      if (error instanceof TypeError) throw new Error('Could not connect. Check your connection and try again.');
+      throw error;
+    } finally { clearTimeout(timeout); }
+  }
+
+  function remember(players) {
+    players.forEach(player => state.knownPlayers.set(player.id, player));
+  }
+
+  function applyOverview(value) {
+    if (value.currentUserId !== account.userId) return;
+    const previousFriends = JSON.stringify((state.overview?.friends || []).map(player => player.id).sort());
+    const nextFriends = JSON.stringify(value.friends.map(player => player.id).sort());
+    state.overview = value;
+    remember(value.friends);
+    remember([...value.incoming, ...value.outgoing].map(item => item.player));
+    state.error = '';
+    if (previousFriends !== nextFriends && typeof playerHub !== 'undefined') {
+      playerHub.revision++;
+      playerHub.profiles.clear();
+      playerHub.errors.clear();
+      if (typeof render === 'function' && typeof view !== 'undefined' && ['player', 'ring'].includes(view)) render();
+    }
+  }
+
+  function relationship(playerId) {
+    const overview = state.overview;
+    const friend = overview?.friends.find(player => player.id === playerId);
+    if (friend) return {status: 'friends', requestId: friend.requestId};
+    const incoming = overview?.incoming.find(item => item.player.id === playerId);
+    if (incoming) return {status: 'incoming', requestId: incoming.id};
+    const outgoing = overview?.outgoing.find(item => item.player.id === playerId);
+    if (outgoing) return {status: 'outgoing', requestId: outgoing.id};
+    return {status: 'none', requestId: null};
+  }
+
+  function actionButton(action, label, playerId, requestId, primary = false) {
+    return `<button type="button" class="${primary ? 'friends-primary' : 'friends-secondary'}" data-friend-action="${action}" data-friend-player="${escapeHTML(playerId)}"${requestId ? ` data-friend-id="${escapeHTML(requestId)}"` : ''}${state.busy || !state.overview ? ' disabled' : ''}>${label}</button>`;
+  }
+
+  function actions(playerId, allowRemove = false) {
+    const relation = relationship(playerId);
+    if (relation.status === 'incoming') return actionButton('accept', 'Accept', playerId, relation.requestId, true) + actionButton('decline', 'Decline', playerId, relation.requestId);
+    if (relation.status === 'outgoing') return '<small class="friends-row-status">Request sent</small>' + actionButton('cancel', 'Cancel request', playerId, relation.requestId);
+    if (relation.status === 'friends') return '<small class="friends-row-status">Friends</small>' + (allowRemove ? actionButton('remove', 'Remove friend', playerId, relation.requestId) : '<button type="button" class="friends-secondary" data-friends-open="friends">View friends</button>');
+    return actionButton('send', 'Add friend', playerId, null, true);
+  }
+
+  function row(player, allowRemove = false) {
+    return `<article class="friends-row">${avatar(player)}<a class="friends-player-copy" href="${profileLink(player.id)}" data-friends-profile><strong>${escapeHTML(player.name)}</strong><small>${escapeHTML(player.sport)} · View profile ↗</small></a><div class="friends-actions">${actions(player.id, allowRemove)}</div></article>`;
+  }
+
+  function errorMarkup(message, source) {
+    return message ? `<div class="friends-error" role="alert"><span>${escapeHTML(message)}</span><button type="button" data-friends-retry="${source}">Try again</button></div>` : '';
+  }
+
+  function renderDialog() {
+    if (!state.dialog) return;
+    const incomingCount = state.overview?.incoming.length || 0;
+    state.dialog.querySelectorAll('[data-friends-tab]').forEach(button => {
+      button.setAttribute('aria-pressed', String(button.dataset.friendsTab === state.tab));
+      const count = button.querySelector('.friends-tab-count');
+      if (count) { count.hidden = !incomingCount; count.textContent = String(incomingCount); }
+    });
+    state.dialog.querySelector('.friends-search').hidden = state.tab !== 'people';
+    let content = errorMarkup(state.error, 'overview');
+    if (!state.overview) {
+      content += '<p class="friends-note" role="status">' + (state.loading ? 'Loading your friends and requests…' : 'Your friends will appear when the connection is restored.') + '</p>';
+    } else if (state.tab === 'requests') {
+      content += `<section class="friends-section"><h3>Received requests · ${incomingCount}</h3>${state.overview.incoming.map(item => row(item.player)).join('') || empty('No new requests', 'Requests from other players will appear here.')}</section>`;
+      content += `<section class="friends-section"><h3>Sent requests · ${state.overview.outgoing.length}</h3>${state.overview.outgoing.map(item => row(item.player)).join('') || '<p class="friends-note">You have no pending sent requests.</p>'}</section>`;
+    } else if (state.tab === 'friends') {
+      content += `<section class="friends-section"><h3>Your friends · ${state.overview.friends.length}</h3>${state.overview.friends.map(player => row(player, true)).join('') || empty('Your circle starts here', 'Find a player and send a friend request. Once accepted, you’ll both appear in each other’s friends list.')}</section>`;
+    } else {
+      content += errorMarkup(state.playersError, 'players');
+      if (state.playersLoading) content += '<p class="friends-note" role="status">Finding players…</p>';
+      content += state.players.map(player => row(player)).join('');
+      if (!state.playersLoading && !state.playersError && !state.players.length) content += empty(state.query ? 'No players found' : 'Meet your next friend', state.query ? 'Try a different name or sport.' : 'Other players will appear here when they create an account.');
+    }
+    updateRegion(state.dialog.querySelector('[data-friends-content]'), content);
+  }
+
+  function updateBadge() {
+    if (!state.trigger) return;
+    const count = state.overview?.incoming.length || 0;
+    const badge = state.trigger.querySelector('.friends-badge');
+    badge.hidden = !count;
+    badge.textContent = count > 99 ? '99+' : String(count);
+    state.trigger.setAttribute('aria-label', count ? `Friends, ${count} pending friend request${count === 1 ? '' : 's'}` : 'Friends');
+    state.trigger.hidden = !signedIn();
+  }
+
+  function addProfileAction() {
+    if (!signedIn() || typeof arena === 'undefined' || typeof view === 'undefined' || view !== 'player') return;
+    let playerId;
+    try { playerId = decodeURIComponent(arena.route.split('/')[1] || ''); } catch { return; }
+    const container = document.querySelector('.hub-profile-actions');
+    if (!container) return;
+    const own = playerId === account.userId;
+    const registered = state.knownPlayers.has(playerId) || (typeof playerHub !== 'undefined' && playerHub.profiles.get(playerId)?.registeredPlayer);
+    if (!own && !registered) return;
+    let region = container.querySelector('.friends-profile-actions');
+    if (!region) { region = document.createElement('div'); region.className = 'friends-profile-actions'; container.prepend(region); }
+    updateRegion(region, own ? '<button type="button" class="friends-primary" data-friends-open="friends">Manage friends</button>' : actions(playerId, true));
+  }
+
+  function addSummary() {
+    if (!signedIn() || typeof view === 'undefined') return;
+    const ownProfile = view === 'player' && arena.data?.currentUserId === account.userId && arena.route.split('/')[1] === encodeURIComponent(account.userId);
+    if (view !== 'connections' && !ownProfile) return;
+    const content = document.querySelector('#content');
+    if (!content) return;
+    let summary = content.querySelector('.friends-summary');
+    if (!summary) { summary = document.createElement('section'); summary.className = 'friends-summary'; summary.setAttribute('aria-label', 'Your friends and requests'); content.prepend(summary); }
+    const friends = state.overview?.friends.length || 0, incoming = state.overview?.incoming.length || 0;
+    const note = state.error ? 'Friends could not refresh. Open Friends to try again.' : !state.overview ? 'Loading your friends…' : `${friends} friend${friends === 1 ? '' : 's'} · ${incoming} received request${incoming === 1 ? '' : 's'}`;
+    updateRegion(summary, `<div><strong>Your friends</strong><p>${escapeHTML(note)}</p></div><div class="friends-summary-actions"><button type="button" class="friends-primary" data-friends-open="people">Find players</button><button type="button" data-friends-open="requests">Requests${incoming ? ' · ' + incoming : ''}</button><button type="button" data-friends-open="friends">View friends</button></div>`);
+  }
+
+  function renderUI() { updateBadge(); renderDialog(); addProfileAction(); addSummary(); }
+
+  async function loadOverview() {
+    if (!signedIn() || state.busy || state.loading) return;
+    const revision = ++state.overviewRevision;
+    state.loading = true;
+    state.lastRefresh = Date.now();
+    renderDialog();
+    try { const value = await request(''); if (revision === state.overviewRevision) applyOverview(value); }
+    catch (error) { if (revision === state.overviewRevision && signedIn()) state.error = error.message; }
+    finally { if (revision === state.overviewRevision) { state.loading = false; renderUI(); } }
+  }
+
+  async function loadPlayers() {
+    if (!signedIn()) return;
+    const revision = ++state.playersRevision;
+    state.playersLoading = true;
+    state.playersError = '';
+    renderDialog();
+    try {
+      const value = await request('/players?q=' + encodeURIComponent(state.query));
+      if (revision === state.playersRevision && value.currentUserId === account.userId) { state.players = value.players; remember(value.players); }
+    } catch (error) { if (revision === state.playersRevision && signedIn()) state.playersError = error.message; }
+    finally { if (revision === state.playersRevision) { state.playersLoading = false; renderUI(); } }
+  }
+
+  async function mutate(button) {
+    if (state.busy || !state.overview || !signedIn()) return;
+    const {friendAction: action, friendPlayer: playerId, friendId: requestId} = button.dataset;
+    if (action !== 'send' && !requestId) return;
+    state.busy = true;
+    state.error = '';
+    state.overviewRevision++;
+    state.loading = false;
+    renderUI();
+    try {
+      const value = await request(action === 'send' ? '/requests' : '/requests/' + encodeURIComponent(requestId), action === 'send' ? {playerId} : {action});
+      applyOverview(value);
+      if (typeof toast === 'function') toast({send: 'Friend request sent.', accept: 'Friend request accepted.', decline: 'Friend request declined.', cancel: 'Friend request cancelled.', remove: 'Friend removed.'}[action]);
+    } catch (error) {
+      if (signedIn()) {
+        state.error = error.message;
+        if (!state.dialog.open) { state.tab = 'requests'; state.dialog.showModal(); state.trigger.setAttribute('aria-expanded', 'true'); }
+      }
+    } finally {
+      state.busy = false;
+      renderUI();
+      if (state.dialog.open && (!document.activeElement || document.activeElement === document.body)) state.dialog.querySelector(`[data-friends-tab="${state.tab}"]`)?.focus();
+    }
+  }
+
+  async function open(tab) {
+    await accountReady;
+    if (!signedIn()) return;
+    state.tab = ['people', 'requests', 'friends'].includes(tab) ? tab : state.overview?.incoming.length ? 'requests' : 'people';
+    renderDialog();
+    if (!state.dialog.open) { state.dialog.showModal(); state.trigger.setAttribute('aria-expanded', 'true'); }
+    await Promise.all([loadOverview(), loadPlayers()]);
+  }
+
+  function createDialog() {
+    const dialog = document.createElement('dialog');
+    dialog.id = 'friends-dialog'; dialog.className = 'friends-dialog';
+    dialog.setAttribute('aria-labelledby', 'friends-title');
+    dialog.innerHTML = `<header class="friends-heading"><div><span class="friends-kicker">YOUR PEOPLE. YOUR GAME.</span><h2 id="friends-title">Build your circle</h2><p class="friends-description">Send a request. Make a friend. Find your next game.</p></div><button type="button" class="friends-close" data-friends-close aria-label="Close friends">${icon('close')}</button></header><nav class="friends-tabs" aria-label="Friends sections"><button type="button" data-friends-tab="people" aria-pressed="true">Find players</button><button type="button" data-friends-tab="requests" aria-pressed="false">Requests <span class="friends-tab-count" hidden></span></button><button type="button" data-friends-tab="friends" aria-pressed="false">Friends</button></nav><label class="friends-search" for="friends-player-search"><span>Find a player</span><input type="search" id="friends-player-search" placeholder="Search by name or sport" autocomplete="off" maxlength="100"></label><div class="friends-body" data-friends-content></div>`;
+    document.body.append(dialog);
+    state.dialog = dialog;
+    dialog.querySelector('#friends-player-search').addEventListener('input', event => {
+      state.query = event.target.value.trim();
+      state.playersRevision++;
+      state.players = [];
+      state.playersLoading = true;
+      renderDialog();
+      clearTimeout(state.searchTimer);
+      state.searchTimer = setTimeout(loadPlayers, 250);
+    });
+    dialog.addEventListener('close', () => state.trigger?.setAttribute('aria-expanded', 'false'));
+  }
+
+  document.addEventListener('click', event => {
+    const button = event.target.closest('button');
+    if (button?.hasAttribute('data-friend-action')) { event.preventDefault(); mutate(button); }
+    else if (button?.hasAttribute('data-friends-open')) open(button.dataset.friendsOpen);
+    else if (button?.hasAttribute('data-friends-tab')) { state.tab = button.dataset.friendsTab; renderDialog(); if (state.tab === 'people') loadPlayers(); }
+    else if (button?.hasAttribute('data-friends-close')) state.dialog.close();
+    else if (button?.hasAttribute('data-friends-retry')) button.dataset.friendsRetry === 'players' ? loadPlayers() : loadOverview();
+    if (event.target.closest('[data-friends-profile]')) state.dialog?.close();
+  });
+
+  if (typeof render === 'function') {
+    const previousRender = render;
+    render = function () { previousRender(); addProfileAction(); addSummary(); };
+  }
+  window.RingFriends = {open, refresh: loadOverview};
+  accountReady.then(() => {
+    createDialog();
+    const button = document.createElement('button');
+    button.type = 'button'; button.className = 'friends-trigger';
+    button.setAttribute('aria-controls', 'friends-dialog'); button.setAttribute('aria-haspopup', 'dialog'); button.setAttribute('aria-expanded', 'false');
+    button.innerHTML = icon('friends') + '<span>Friends</span><span class="friends-badge" hidden></span>';
+    button.addEventListener('click', () => open());
+    const topbar = document.querySelector('.topbar');
+    topbar.insertBefore(button, topbar.querySelector('.account-logout'));
+    state.trigger = button;
+    Promise.all([loadOverview(), loadPlayers()]);
+    setInterval(() => {
+      if (document.visibilityState !== 'hidden' && signedIn() && Date.now() - state.lastRefresh >= (state.dialog.open ? 8000 : 30000)) loadOverview();
+    }, 8000);
+    document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') loadOverview(); });
+  });
+  // Expired sessions must not leave a private friends dialog over the login screen.
+  new MutationObserver(() => {
+    if (signedIn()) return;
+    state.overviewRevision++; state.playersRevision++;
+    state.overview = null; state.players = []; state.knownPlayers.clear();
+    state.query = '';
+    const search = state.dialog?.querySelector('#friends-player-search');
+    if (search) search.value = '';
+    state.error = ''; state.playersError = ''; state.loading = false; state.playersLoading = false;
+    clearTimeout(state.searchTimer);
+    if (state.dialog?.open) state.dialog.close();
+    document.querySelectorAll('.friends-profile-actions, .friends-summary').forEach(node => node.remove());
+    renderUI();
+  }).observe(document.body, {attributes: true, attributeFilter: ['class']});
+})();

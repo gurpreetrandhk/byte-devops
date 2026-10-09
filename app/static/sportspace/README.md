@@ -107,6 +107,31 @@ rosters, results and award events. Pending applicants are not accepted connectio
 Seeded historical game and award totals are distinguished from detailed records.
 Profiles include follow/support actions, editable geography and a copy-link button.
 
+## Friends and friend requests
+
+Open **Friends** in the top bar or **Find players** in Connections to search other
+registered players by name or sport. Choose **Add friend** to send a request.
+The recipient's Friends badge shows pending incoming requests. In **Requests**,
+recipients can accept or decline, and senders can cancel their pending requests.
+The **Friends** tab lists accepted friends, links to their profiles, and allows
+either player to remove the friendship. Registered player profiles also have
+friend request controls; your own profile includes **Manage friends**.
+
+Requests and friendships persist in the same PostgreSQL or explicit local SQLite
+state as accounts. Accepted friends appear in both players' profile connection
+maps. Pending requests are visible only to their sender and recipient and do not
+count as connections. Friendships are independent of follows, squad memberships,
+support and awards. Sample profiles cannot receive requests. Duplicate requests,
+self requests and actions by unrelated accounts are rejected. The sender comes
+from the signed-in session, and existing authentication and CSRF checks apply.
+
+| Method | Endpoint | Behavior |
+| --- | --- | --- |
+| GET | `/api/friends` | Own friends, incoming and outgoing pending requests |
+| GET | `/api/friends/players?q={query}` | Find other registered players and their relationship to the visitor |
+| POST | `/api/friends/requests` | Send `{ "playerId": "..." }` |
+| POST | `/api/friends/requests/{requestId}` | Submit `{ "action": "accept" }`, `decline`, `cancel` or `remove` |
+
 ## Private sticker messages
 
 Open **Stickers** in the top bar to browse the pack before choosing a recipient.
@@ -182,6 +207,8 @@ Fixtures marked live are sample match states, not a live sports data integration
 - `stickers.js` / `stickers.json`: retryable shared local sticker catalog and login preview.
 - `stickers-ui.js` / `stickers.css`: sticker pack, sharing, copy and image download.
 - `messages.js` / `messages.css`: private sticker inbox and recipient search.
+- `friends.js` / `friends.css`: player discovery, friend requests and friends list.
+- `../../friends.py`: persistent friendships and participant-only request actions.
 - `assets/stickers/`: original SVG sports stickers.
 - `game.css`: arena artwork, game-inspired community styling and reactions.
 - `assets/game-arena.webp`: local optimized arena artwork. See

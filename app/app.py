@@ -4,6 +4,7 @@ from flask import Flask, jsonify, request, redirect
 from social import social
 from arena import arena
 from messages import messages
+from friends import friends
 from db import (
     initialize_database,
     test_database_connection,
@@ -18,6 +19,7 @@ app.config["AUTH_COOKIE_SECURE"] = os.environ.get("AUTH_COOKIE_SECURE") == "1"
 app.register_blueprint(social)
 app.register_blueprint(arena)
 app.register_blueprint(messages)
+app.register_blueprint(friends)
 from auth import install_auth
 install_auth(app)
 

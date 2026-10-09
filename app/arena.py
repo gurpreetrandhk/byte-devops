@@ -135,8 +135,16 @@ def player_details(player_id):
             for member_id in match['participantIds']:
                 if member_id != player_id:
                     connections.setdefault(member_id, dict(playerId=member_id, teamIds=[], matchIds=[]))['matchIds'].append(match['id'])
+        from friends import relationships
+        from messages import registered_players
+        players_by_id = registered_players(data)
+        if player_id in players_by_id:
+            for friendship, peer in relationships(data, player_id, players_by_id):
+                if friendship['status'] == 'accepted':
+                    connections.setdefault(peer['id'], dict(playerId=peer['id'], teamIds=[], matchIds=[]))['friend'] = True
         posts = sorted((p for p in data['posts'] if p.get('authorId') == player_id), key=lambda p: p['createdAt'], reverse=True)
-        return jsonify(player=player, teams=teams, matches=matches,
+        return jsonify(player=player, registeredPlayer=player_id in players_by_id,
+                       teams=teams, matches=matches,
                        connections=[{**c, 'player': find(overview['players'], c['playerId'])} for c in connections.values() if find(overview['players'], c['playerId'])],
                        awards=[a for a in overview['awards'] if a['playerId'] == player_id],
                        posts=[public(p, data) for p in posts],
